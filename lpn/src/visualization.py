@@ -1,3 +1,4 @@
+import io
 import random
 
 import chex
@@ -7,6 +8,7 @@ from matplotlib.colors import ListedColormap, Normalize
 import jax.numpy as jnp
 from sklearn.manifold import TSNE
 import seaborn as sns
+from PIL import Image
 
 # Define color map
 arc_cmap = ListedColormap(
@@ -31,13 +33,31 @@ def display_grid(ax: plt.Axes, grid: chex.Array, grid_shape: chex.Array) -> None
     rows = min(rows, grid.shape[0])
     cols = min(cols, grid.shape[1])
 
-    ax.imshow(grid[:rows, :cols], cmap=arc_cmap, interpolation="nearest", aspect="equal", norm=arc_norm)
+    ax.imshow(
+        grid[:rows, :cols],
+        cmap=arc_cmap,
+        interpolation="nearest",
+        aspect="equal",
+        norm=arc_norm,
+        origin="lower",
+    )
     ax.set_xticks([])
     ax.set_yticks([])
     ax.axis("off")
 
     # Add shape information below the grid
     ax.text(0.5, -0.02, f"{rows}x{cols}", transform=ax.transAxes, ha="center", va="top")
+
+
+def ax_to_pil(ax):
+    fig = ax.figure
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
+    buf.seek(0)
+    pil_image = Image.open(buf)
+    plt.close(fig)  # Close the figure to free memory
+    buf.close()
+    return pil_image
 
 
 def display_function_examples(grids, shapes, num_pairs=None, seed=None) -> tuple:
