@@ -1,4 +1,4 @@
-# Latent Program Network
+# Latent Program Network (LPN)
 Code for the paper _Searching Latent Program Spaces_, submitted to the [ARC Prize 2024](https://www.kaggle.com/competitions/arc-prize-2024) competition.
 
 Authors and maintainers: [Clément Bonnet](https://github.com/clement-bonnet) & [Matthew V Macfarlane](https://github.com/mvmacfarlane).
@@ -10,6 +10,7 @@ Authors and maintainers: [Clément Bonnet](https://github.com/clement-bonnet) & 
 
 
 ## Overview
+The LPN is an architecture for inductive program synthesis that builds in test-time adaption by learning a latent space that can be used for search.
 ![LPN Diagram](src/figures/lpn_diagram.png)
 
 
