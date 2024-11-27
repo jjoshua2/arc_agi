@@ -8,6 +8,11 @@ Authors and maintainers: [Clément Bonnet](https://github.com/clement-bonnet) & 
 - [📄 Paper on arXiv](https://arxiv.org/abs/2411.08706)
 - [🚀 Interactive Demo](https://huggingface.co/spaces/clement-bonnet/lpn)
 
+
+## Overview
+![LPN Diagram](src/figures/lpn_diagram.png)
+
+
 ## Installation
 Install JAX using the official documentation [here](https://github.com/jax-ml/jax?tab=readme-ov-file#instructions). Then, install the required packages using the following commands:
 ```bash
