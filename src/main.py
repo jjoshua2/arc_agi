@@ -56,7 +56,7 @@ async def main() -> None:
 
     # eval_ids_to_test = list(eval_challenges.keys())[272:274]
 
-    # do random set of 10
+    # do random set of 5
     eval_keys = list(eval_challenges.keys())
     random.shuffle(eval_keys)
     eval_ids_to_test = eval_keys[:5]
@@ -229,6 +229,10 @@ async def main() -> None:
         o1_mini_flat_tree,
         o1_mini_small_tree,
     )
+    from src.trees.experiments import gpt_dreamcoder_tree
+    from src.models import Library
+
+    library = Library()
 
     for challenge_id in eval_ids_to_test:
         debug(challenge_id)
@@ -236,10 +240,10 @@ async def main() -> None:
         challenge = eval_challenges[challenge_id]
         solutions = await solve_challenge(
             challenge=challenge,
-            # tree=gemini_flat_tree,
-            tree=claude_gemini_flat_tree,
-            # tree=haiku_gemini_flat_tree,
+            tree=gpt_dreamcoder_tree,
+            library=library,
         )
+        # TODO: this assume test is only one example
         test_output = challenge.test[0].output
         solution_one_correct = solutions[0] == test_output
         solution_two_correct = solutions[1] == test_output

@@ -923,3 +923,22 @@ deepseek_pooling_example: list[RootAttemptConfig] = [
         fixes=[],
     ),
 ]
+gpt_dreamcoder_tree: list[RootAttemptConfig] = [
+    RootAttemptConfig(
+        attempts=1,
+        llm_config=LLMConfig(
+            model=Model.gpt_4o,
+            temperature=0.95,
+        ),
+        prompt_config=RootPromptConfig(
+            base_prompt=Prompt.REASONING,
+            use_examples=True,
+            use_diffs=True,
+            use_images=True,
+            use_ascii=True,
+            use_array=True,
+            use_image=True,
+        ),
+        fixes=[],
+    ),
+]

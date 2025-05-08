@@ -25,6 +25,8 @@ from src.models import (
     RootAttemptConfig,
     prompt_map,
     random_string,
+    Library,
+    Primitive
 )
 from src.prompts.examples import (
     GRID_CHANGE_PROMPT_EXAMPLE_1,
@@ -318,6 +320,56 @@ def eval_attempts(
         f"[{attempts[0].challenge.id}] finished processing node [{attempts[0].config.llm_config.model.value}]: {total_runs} attempts, {round(avg_train_accuracy * 100, 2)}% accuracy, ${round(total_cost / 100, 2)}, {round(time_took_ms / 1000, 2)} secs",
     )
 
+def percent_right_from_grids(train_output: GRID, train_attempt: GRID) -> float:
+    try:
+        if len(train_output) != len(train_attempt):
+            return 0
+        if len(train_output[0]) != len(train_attempt[0]):
+            return 0
+
+        num_right = 0
+        rows = len(train_output)
+        cols = len(train_output[0])
+
+        for row in range(rows):
+            for col in range(cols):
+                if train_output[row][col] == train_attempt[row][col]:
+                    num_right += 1
+        return num_right / (rows * cols)
+    except Exception as e:
+        logfire.debug(f"in percent right from grids: {e=}")
+        return 0
+
+def get_best_primitives(
+    library: Library, challenge: Challenge, k_top: int
+) -> list[Primitive]:
+    # first, order primitives by how many examples they got right
+    # then, order by the diff in cells
+    # TODO: use a better metric later
+    example_correct: list[Primitive] = []
+    secondary_score_lst: list[Primitive] = []
+    for primitive in library.primitives:
+        transform_results = run_python_transform_sync(
+            code=primitive.python_code_str,
+            grid_lists=[deepcopy(train.input) for train in challenge.train],
+            timeout=5,
+            raise_exception=True,
+        )
+        transformed_grids = transform_results.transform_results
+        num_correct = 0
+        avg_right_lst = []
+        for idx, train in enumerate(challenge.train):
+            if train.output == transformed_grids[idx]:
+                num_correct += 1
+            train_accuracy = percent_right_from_grids(train.output, transformed_grids[idx])
+            avg_right_lst.append(train_accuracy)
+        example_correct.append(num_correct)
+        secondary_score_lst.append(sum(avg_right_lst) / len(avg_right_lst))
+
+    # Get the sorted indices in descending order
+    sorted_indices = sorted(range(len(example_correct)), key=lambda i: (example_correct[i], secondary_score_lst[i]), reverse=True)
+
+    return [library.primitives[i] for i in sorted_indices[:k_top]]
 
 def get_best_attempts(
     attempts: list[Attempt], k_top: int, unique_code: bool, unique_output: bool
@@ -527,8 +579,12 @@ async def run_tree(
     challenge: Challenge,
     warm_cache_root: bool,
     warm_cache_fix: bool,
+    library: Library = None,
 ) -> list[Attempt]:
-    # run DFS on this tree
+    # find the best functions in the library for this challenge
+    primitive = get_best_primitives(library=library, challenge=challenge, k_top=1)
+    print(f"[{challenge.id}] Found primitive: {primitive}")
+    
 
     all_attempts: list[Attempt] = []
     for root_attempt_config in tree:
@@ -542,6 +598,7 @@ async def run_tree(
             raise_exception=False,
             fixing=[],
             n_times=root_attempt_config.attempts,
+            primitive=primitive,
         )
         start_eval = time.time()
         took_level = time.time() - start_level
@@ -597,7 +654,7 @@ def get_grids_from_attempt(attempt: Attempt) -> list[GRID]:
 
 
 async def solve_challenge(
-    tree: list[RootAttemptConfig], challenge: Challenge, url: str = None
+    tree: list[RootAttemptConfig], challenge: Challenge, library: Library = None, url: str = None
 ) -> tuple[list[GRID], list[GRID]]:
     if url:
         env_vars = {
@@ -632,7 +689,7 @@ async def solve_challenge(
     started_at_ms = time.time() * 1000
 
     attempts = await run_tree(
-        tree=tree, challenge=challenge, warm_cache_root=True, warm_cache_fix=False
+        tree=tree, challenge=challenge, library=library, warm_cache_root=True, warm_cache_fix=False
     )
     attempts = dedup_attempts(attempts)
 

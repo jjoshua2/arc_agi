@@ -20,6 +20,7 @@ from tqdm import tqdm
 from src import USE_GRID_URL, logfire
 from src.db import init_db_pool, pool
 from src.prompts import prompts
+from src.models import Primitive
 
 DOUBLE_ENTER = "\n\n"
 
@@ -286,6 +287,7 @@ class Attempt(BaseModel):
             return []
         return [self.fixing.id, *self.fixing.fixing_ids]
 
+    # TODO: cache this?
     @computed_field
     @property
     def train_accuracy(self) -> float:
@@ -672,6 +674,7 @@ Once you are done reasoning, rewrite the code to fix the issue. Return the code 
         raise_exception: bool,
         fixing: list["Attempt"],
         n_times: int,
+        primitive: Primitive | None = None,
     ) -> list["Attempt"]:
         from src.logic import challenge_to_messages
 
@@ -679,6 +682,7 @@ Once you are done reasoning, rewrite the code to fix the issue. Return the code 
             assert isinstance(attempt_config, RootAttemptConfig)
             messages = challenge_to_messages(
                 challenge=challenge,
+                # TODO: just pass the attempt config
                 add_examples=attempt_config.prompt_config.use_examples,
                 include_diffs=attempt_config.prompt_config.use_diffs,
                 prompt=attempt_config.prompt_config.base_prompt,
@@ -692,6 +696,19 @@ Once you are done reasoning, rewrite the code to fix the issue. Return the code 
             messages = cls.messages_from_fixes(
                 challenge=challenge, attempt_config=attempt_config, fixing=fixing
             )
+        if primitive:
+            add_primitive_message = f"""
+                Here is a primitive that you can build upon to solve this problem. Remember, it's okay to not to use this primitive too
+                if you think it's not helpful.
+
+                {primitive.python_code_str}
+            """
+            messages.append({
+                    "role": "user",
+                    "content": [{"type": "text", "text": add_primitive_message}],
+                }
+            )
+        logfire.debug(f"[{challenge.id}] messages: {messages}")
         return await cls.from_messages_many(
             challenge=challenge,
             messages=messages,
@@ -934,3 +951,9 @@ Once you are done reasoning, rewrite the code to fix the issue. Return the code 
 
             # Use execute_many for efficient bulk insertion
             await conn.executemany(s, values_list)
+
+class Primitive(BaseModel):
+    python_code_str: str
+
+class Library(BaseModel):
+    primitives: list[Primitive]
