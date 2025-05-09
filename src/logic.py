@@ -353,22 +353,26 @@ def get_best_primitives(
             code=primitive.python_code_str,
             grid_lists=[deepcopy(train.input) for train in challenge.train],
             timeout=5,
-            raise_exception=True,
+            raise_exception=False, # since we are applying all primitives to all tasks
         )
-        transformed_grids = transform_results.transform_results
-        num_correct = 0
-        avg_right_lst = []
-        for idx, train in enumerate(challenge.train):
-            if train.output == transformed_grids[idx]:
-                num_correct += 1
-            train_accuracy = percent_right_from_grids(train.output, transformed_grids[idx])
-            avg_right_lst.append(train_accuracy)
-        example_correct.append(num_correct)
-        secondary_score_lst.append(sum(avg_right_lst) / len(avg_right_lst))
-
+        if transform_results.transform_results:
+            transformed_grids = transform_results.transform_results
+            num_correct = 0
+            avg_right_lst = []
+            for idx, train in enumerate(challenge.train):
+                if train.output == transformed_grids[idx]:
+                    num_correct += 1
+                train_accuracy = percent_right_from_grids(train.output, transformed_grids[idx])
+                avg_right_lst.append(train_accuracy)
+            example_correct.append(num_correct)
+            secondary_score_lst.append(sum(avg_right_lst) / len(avg_right_lst))
+        else:
+            example_correct.append(0)
+            secondary_score_lst.append(0)
     # Get the sorted indices in descending order
     sorted_indices = sorted(range(len(example_correct)), key=lambda i: (example_correct[i], secondary_score_lst[i]), reverse=True)
 
+    k_top = min(k_top, len(sorted_indices))
     return [library.primitives[i] for i in sorted_indices[:k_top]]
 
 def get_best_attempts(
@@ -582,11 +586,15 @@ async def run_tree(
     library: Library = None,
 ) -> list[Attempt]:
     # find the best functions in the library for this challenge
-    primitive = get_best_primitives(library=library, challenge=challenge, k_top=1)
-    print(f"[{challenge.id}] Found primitive: {primitive}")
-    
+    primitives = get_best_primitives(library=library, challenge=challenge, k_top=1)
+    if primitives:
+        primitive = primitives[0]
+        print(f"[{challenge.id}] Found primitive: {primitive}")
+    else:
+        primitive = None
 
     all_attempts: list[Attempt] = []
+    print(f"tree length: {len(tree)}")
     for root_attempt_config in tree:
         start_level = time.time()
         message = f"[{challenge.id}] running root node with {root_attempt_config.attempts} attempts."
@@ -609,6 +617,8 @@ async def run_tree(
             time_took_ms=(took_level * 1000),
         )
         logfire.debug(f"[{challenge.id}] eval took {(time.time() - start_eval)} secs")
+        print(f"[{challenge.id}] eval took {(time.time() - start_eval)} secs")
+        print(f"[{challenge.id}] len of local attempts: {len(local_attempts)}")
         all_attempts.extend(local_attempts)
         all_attempts = dedup_attempts(all_attempts)
 
@@ -617,6 +627,7 @@ async def run_tree(
             return all_attempts
 
         # now run the fixes
+        """
         if root_attempt_config.include_all_attempts_in_fixes:
             parent_attempts = all_attempts
         else:
@@ -633,7 +644,8 @@ async def run_tree(
         # now see if you have a solution
         if has_perfect_attempts(all_attempts):
             return all_attempts
-
+        """
+    print(f"all attempts: {len(all_attempts)}")
     return dedup_attempts(all_attempts)
 
 
@@ -691,6 +703,7 @@ async def solve_challenge(
     attempts = await run_tree(
         tree=tree, challenge=challenge, library=library, warm_cache_root=True, warm_cache_fix=False
     )
+    print(f"all attempts: {len(attempts)}")
     attempts = dedup_attempts(attempts)
 
     # get the number and cost from all of these attempts
@@ -698,6 +711,7 @@ async def solve_challenge(
     logfire.debug(
         f"[{challenge.id}] DONE: n attempts: {len(attempts)}, total cost cents: {total_cost_cents}"
     )
+    print(f"[{challenge.id}] DONE: n attempts: {len(attempts)}, total cost cents: {total_cost_cents}")
 
     ended_at_ms = time.time() * 1000
 
@@ -710,9 +724,17 @@ async def solve_challenge(
     top_two = get_best_attempts(
         attempts=attempts, k_top=2, unique_code=True, unique_output=True
     )
+    
+    if len(top_two) == 0:
+        # TODO: LLM call failed. Return empty solutions
+        return [], []
 
     if len(top_two) == 1:
         top_two.append(top_two[0])
+
+    # TODO: only add primitive if top one scores better than best primitive on this task
+    if library and top_two:
+        library.add_primitive(Primitive(python_code_str=top_two[0].python_code_str))
 
     first_solution = top_two[0]
     second_solution = top_two[1]

@@ -230,9 +230,10 @@ async def get_next_message_openai(
             request_id = random_string()
             start = time.time()
             logfire.debug(f"[{request_id}] calling openai")
+            print(f"[{request_id}] calling openai")
             message = await openai_client.chat.completions.create(
                 **extra_params,
-                max_completion_tokens=50_000,
+                max_completion_tokens=16384,
                 messages=messages,
                 model=model.value,
             )
@@ -247,9 +248,15 @@ async def get_next_message_openai(
             logfire.debug(
                 f"[{request_id}] got back {name}, took {took_ms:.2f}, {usage}, cost_cents={Attempt.cost_cents_from_usage(model=model, usage=usage)}"
             )
+            print(
+                f"[{request_id}] got back {name}, took {took_ms:.2f}, {usage}, cost_cents={Attempt.cost_cents_from_usage(model=model, usage=usage)}"
+            )
             break  # Success, exit the loop
         except Exception as e:
             logfire.debug(
+                f"Other {name} error: {str(e)}, retrying in {retry_count} seconds ({retry_count}/{max_retries})..."
+            )
+            print(
                 f"Other {name} error: {str(e)}, retrying in {retry_count} seconds ({retry_count}/{max_retries})..."
             )
             retry_count += 1
@@ -389,7 +396,7 @@ async def get_next_messages(
     ]:
         openai_client = AsyncOpenAI(
             api_key=os.environ["OPENAI_API_KEY"],
-            timeout=1200,
+            timeout=1200, # 1200 seconds = 20 minutes
             max_retries=10,
         )
         if messages[0]["role"] == "system":

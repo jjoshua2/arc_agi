@@ -77,7 +77,7 @@ try:
     # Print results as JSON
     print("TRANSFORM_RESULT:" + json.dumps(results))
 except Exception as e:
-    print("Error executing transform: " + str(e) + "RESULTS" + str(results) + "T", type(results), file=sys.stderr)
+    print("Error executing transform: " + str(e) + "  RESULTS  " + str(results) + "  T  ", type(results), file=sys.stderr)
     sys.exit(1)
 """
 

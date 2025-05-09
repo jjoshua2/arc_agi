@@ -20,7 +20,6 @@ from tqdm import tqdm
 from src import USE_GRID_URL, logfire
 from src.db import init_db_pool, pool
 from src.prompts import prompts
-from src.models import Primitive
 
 DOUBLE_ENTER = "\n\n"
 
@@ -142,6 +141,15 @@ model_price_map: dict[Model, ModelPrice] = {
     ),
 }
 
+
+class Primitive(BaseModel):
+    python_code_str: str
+
+class Library(BaseModel):
+    primitives: list[Primitive]
+
+    def add_primitive(self, primitive: Primitive) -> None:
+        self.primitives.append(primitive)
 
 class Example(BaseModel):
     input: GRID
@@ -445,6 +453,7 @@ class Attempt(BaseModel):
             logfire.debug(
                 f"[{challenge.id}] BIG PROBLEM***** Error getting next messages: {e}"
             )
+            print(f"[{challenge.id}] BIG PROBLEM***** Error getting next messages: {e}")
             return []
         start_grid = time.time()
         llm_responses = [m[0] for m in next_messages]
@@ -951,9 +960,3 @@ Once you are done reasoning, rewrite the code to fix the issue. Return the code 
 
             # Use execute_many for efficient bulk insertion
             await conn.executemany(s, values_list)
-
-class Primitive(BaseModel):
-    python_code_str: str
-
-class Library(BaseModel):
-    primitives: list[Primitive]

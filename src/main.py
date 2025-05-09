@@ -1,5 +1,8 @@
 import asyncio
 import random
+import pickle
+import os
+import argparse
 
 from devtools import debug
 
@@ -8,20 +11,25 @@ from src.logic import solve_challenge
 
 
 async def main() -> None:
+    # Add argument parser
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-e", "--eval", action="store_true", help="Use saved library")
+    args = parser.parse_args()
+
     num_correct: int = 0
     num_tested: int = 0
     # 40 percent for first 10 in train w claude
 
     challenge_ids = [
-        # "007bbfb7", # correct
-        # "00d62c1b", # wrong
-        # "017c7c7b", # correct
-        # "025d127b", # wrong
-        # "045e512c", # wrong
-        # "0520fde7", # correct
+        "007bbfb7", # correct
+        "00d62c1b", # wrong
+        "017c7c7b", # correct
+        "025d127b", # wrong
+        "045e512c", # wrong
+        "0520fde7", # correct
         "05269061",  # wrong: technically got it wrong but it did have a correct solution with train attempt 1 correct
-        # "05f2a901",  # correct
-        # "06df4c85",  # wrong
+        "05f2a901",  # correct
+        "06df4c85",  # wrong
         "08ed6ac7",  # wrong -> but right second time around
     ]
 
@@ -232,29 +240,61 @@ async def main() -> None:
     from src.trees.experiments import gpt_dreamcoder_tree
     from src.models import Library
 
-    library = Library()
+    # Only use library if -e flag is provided
+    library = None
+    if args.eval:
+        # Function to load library
+        def load_library(filename="saved_library.pkl"):
+            if os.path.exists(filename):
+                with open(filename, "rb") as f:
+                    return pickle.load(f)
+                print(f"Library loaded from {filename}")
+            else:
+                print(f"No library file found at {filename}, creating new library")
+                return Library(primitives=[])
 
-    for challenge_id in eval_ids_to_test:
-        debug(challenge_id)
-        # challenge = training_challenges[challenge_id]
-        challenge = eval_challenges[challenge_id]
-        solutions = await solve_challenge(
-            challenge=challenge,
-            tree=gpt_dreamcoder_tree,
-            library=library,
-        )
-        # TODO: this assume test is only one example
-        test_output = challenge.test[0].output
-        solution_one_correct = solutions[0] == test_output
-        solution_two_correct = solutions[1] == test_output
-        debug(solution_one_correct, solution_two_correct)
-        is_correct_final = solution_one_correct or solution_two_correct
-        debug(challenge_id, is_correct_final)
-        if is_correct_final:
-            num_correct = num_correct + 1
-        num_tested = num_tested + 1
-        print(f"Correct Percent SO FAR: {num_correct / num_tested}")
+        # Function to save library
+        def save_library(library, filename="saved_library.pkl"):
+            with open(filename, "wb") as f:
+                pickle.dump(library, f)
+            print(f"Library saved to {filename}")
 
+        library_path = "saved_library.pkl"
+        library = load_library(library_path)
+    else:
+        library = Library(primitives=[])
+
+    for _ in range(3):
+        solved_challenges = []
+        for challenge_id in challenge_ids:
+            if challenge_id in solved_challenges:
+                continue
+            debug(challenge_id)
+            challenge = training_challenges[challenge_id]
+            # challenge = eval_challenges[challenge_id]
+            solutions = await solve_challenge(
+                challenge=challenge,
+                tree=gpt_dreamcoder_tree,
+                library=library,
+            )
+            # TODO: this assume test is only one example
+            test_output = challenge.test[0].output
+            solution_one_correct = solutions[0] == test_output
+            solution_two_correct = solutions[1] == test_output
+            debug(solution_one_correct, solution_two_correct)
+            is_correct_final = solution_one_correct or solution_two_correct
+            debug(challenge_id, is_correct_final)
+            if is_correct_final:
+                num_correct = num_correct + 1
+                solved_challenges.append(challenge_id)
+            num_tested = num_tested + 1
+            print(f"Correct Percent SO FAR: {num_correct / num_tested}")
+
+    # Only save library if -e flag was provided
+    if args.eval:
+        save_library(library, library_path)
+
+    print(f"Solved Challenges: {solved_challenges}")
     print(f"Correct Percent: {num_correct / num_tested}")
 
 
