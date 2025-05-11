@@ -49,7 +49,7 @@ class LogfireDummy:
 if os.getenv("LOGFIRE_TOKEN"):
     import logfire
 
-    logfire.configure(inspect_arguments=True)
+    logfire.configure(inspect_arguments=True, token=os.getenv("LOGFIRE_TOKEN"))
 else:
     logfire = LogfireDummy()
 

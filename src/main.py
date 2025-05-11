@@ -264,7 +264,7 @@ async def main() -> None:
     else:
         library = Library(primitives=[])
 
-    for _ in range(3):
+    for i in range(2):
         solved_challenges = []
         for challenge_id in challenge_ids:
             if challenge_id in solved_challenges:
@@ -289,6 +289,8 @@ async def main() -> None:
                 solved_challenges.append(challenge_id)
             num_tested = num_tested + 1
             print(f"Correct Percent SO FAR: {num_correct / num_tested}")
+        print(f"After {i+1} rounds, Solved Challenges: {solved_challenges}")
+        print(f"After {i+1} rounds, Correct Percent SO FAR: {num_correct / num_tested}")
 
     # Only save library if -e flag was provided
     if args.eval:

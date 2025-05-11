@@ -315,7 +315,8 @@ def eval_attempts(
         "llm_config": config.llm_config,
         "time_took_ms": round(time_took_ms, 2),
     }
-    logfire.debug("eval", **debug_d)
+    
+    logfire.debug(f"[{attempts[0].challenge.id}] eval", **debug_d)
     print(
         f"[{attempts[0].challenge.id}] finished processing node [{attempts[0].config.llm_config.model.value}]: {total_runs} attempts, {round(avg_train_accuracy * 100, 2)}% accuracy, ${round(total_cost / 100, 2)}, {round(time_took_ms / 1000, 2)} secs",
     )
@@ -703,7 +704,6 @@ async def solve_challenge(
     attempts = await run_tree(
         tree=tree, challenge=challenge, library=library, warm_cache_root=True, warm_cache_fix=False
     )
-    print(f"all attempts: {len(attempts)}")
     attempts = dedup_attempts(attempts)
 
     # get the number and cost from all of these attempts
