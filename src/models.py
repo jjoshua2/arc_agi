@@ -379,7 +379,7 @@ class Attempt(BaseModel):
 
         if returns_python:
             python_str = parse_python_backticks(llm_response)
-            # debug(python_str)
+            logfire.debug(f"[{challenge.id}] LLM response python_str: {python_str}")
             transform_results = await run_python_transform_async(
                 code=python_str,
                 grid_lists=[
@@ -390,10 +390,16 @@ class Attempt(BaseModel):
                 raise_exception=True,
             )
             logfire.debug(
-                f"Transform results took {transform_results.latency_ms:.2f} ms"
+                f"[{challenge.id}] Transform results took {transform_results.latency_ms:.2f} ms"
             )
             test_grid = transform_results.transform_results[0]
+            logfire.debug(
+                f"[{challenge.id}] Transform results test grid {test_grid}"
+            )
             train_grids = transform_results.transform_results[1:]
+            logfire.debug(
+                f"[{challenge.id}] Transform results train grid {train_grids}"
+            )
         else:
             python_str = None
             lists = parse_2d_arrays_from_string(s=llm_response)

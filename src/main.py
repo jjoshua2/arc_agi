@@ -264,7 +264,7 @@ async def main() -> None:
     else:
         library = Library(primitives=[])
 
-    for i in range(2):
+    for i in range(10):
         solved_challenges = []
         for challenge_id in challenge_ids:
             if challenge_id in solved_challenges:
