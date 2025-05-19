@@ -377,6 +377,9 @@ class Attempt(BaseModel):
         from src.llms import parse_2d_arrays_from_string, parse_python_backticks
         from src.run_python import run_python_transform_async
 
+        print(f"[{challenge.id}] LLM response: {llm_response}")
+        print(f"[{challenge.id}] returns_python: {returns_python}")
+
         if returns_python:
             python_str = parse_python_backticks(llm_response)
             logfire.debug(f"[{challenge.id}] LLM response python_str: {python_str}")
@@ -454,6 +457,7 @@ class Attempt(BaseModel):
                 n_times=n_times,
             )
             if not next_messages:
+                print(f"[{challenge.id}] no next messages")
                 return []
         except Exception as e:
             logfire.debug(
@@ -461,10 +465,12 @@ class Attempt(BaseModel):
             )
             print(f"[{challenge.id}] BIG PROBLEM***** Error getting next messages: {e}")
             return []
+        print(f"[{challenge.id}] inside from messages many")
         start_grid = time.time()
         llm_responses = [m[0] for m in next_messages]
         grid_lists = None
-        if USE_GRID_URL:
+
+        if False:
             try:
                 async with httpx.AsyncClient(timeout=120) as client:
                     r = await client.post(
@@ -492,6 +498,7 @@ class Attempt(BaseModel):
                 returns_python=attempt_config.prompt_config.returns_python,
             )
         logfire.debug(f"[{challenge.id}] grids took {time.time() - start_grid} secs")
+        print(f"[{challenge.id}] grids took {time.time() - start_grid} secs")
         attempts: list[Attempt] = []
         for next_message, grid_list in zip(next_messages, grid_lists, strict=True):
             if grid_list:

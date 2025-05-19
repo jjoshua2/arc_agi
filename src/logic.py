@@ -315,10 +315,10 @@ def eval_attempts(
         "llm_config": config.llm_config,
         "time_took_ms": round(time_took_ms, 2),
     }
-    
+
     logfire.debug(f"[{attempts[0].challenge.id}] eval", **debug_d)
     print(
-        f"[{attempts[0].challenge.id}] finished processing node [{attempts[0].config.llm_config.model.value}]: {total_runs} attempts, {round(avg_train_accuracy * 100, 2)}% accuracy, ${round(total_cost / 100, 2)}, {round(time_took_ms / 1000, 2)} secs",
+        f"[{attempts[0].challenge.id}] finished processing node [{attempts[0].config.llm_config.model.value}]: {total_runs} attempts, {round(avg_train_accuracy * 100, 2)}% accuracy, {round(avg_test_accuracy * 100, 2)}% accuracy, ${round(total_cost / 100, 2)}, {round(time_took_ms / 1000, 2)} secs",
     )
 
 def percent_right_from_grids(train_output: GRID, train_attempt: GRID) -> float:
@@ -595,7 +595,6 @@ async def run_tree(
         primitive = None
 
     all_attempts: list[Attempt] = []
-    print(f"tree length: {len(tree)}")
     for root_attempt_config in tree:
         start_level = time.time()
         message = f"[{challenge.id}] running root node with {root_attempt_config.attempts} attempts."
@@ -619,7 +618,6 @@ async def run_tree(
         )
         logfire.debug(f"[{challenge.id}] eval took {(time.time() - start_eval)} secs")
         print(f"[{challenge.id}] eval took {(time.time() - start_eval)} secs")
-        print(f"[{challenge.id}] len of local attempts: {len(local_attempts)}")
         all_attempts.extend(local_attempts)
         all_attempts = dedup_attempts(all_attempts)
 
@@ -646,7 +644,6 @@ async def run_tree(
         if has_perfect_attempts(all_attempts):
             return all_attempts
         """
-    print(f"all attempts: {len(all_attempts)}")
     return dedup_attempts(all_attempts)
 
 

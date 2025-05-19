@@ -279,8 +279,8 @@ async def main() -> None:
             )
             # TODO: this assume test is only one example
             test_output = challenge.test[0].output
-            solution_one_correct = solutions[0] == test_output
-            solution_two_correct = solutions[1] == test_output
+            solution_one_correct = solutions[0][0] == test_output
+            solution_two_correct = solutions[1][0] == test_output
             debug(solution_one_correct, solution_two_correct)
             is_correct_final = solution_one_correct or solution_two_correct
             debug(challenge_id, is_correct_final)
