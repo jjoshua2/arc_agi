@@ -318,7 +318,7 @@ def eval_attempts(
 
     logfire.debug(f"[{attempts[0].challenge.id}] eval", **debug_d)
     print(
-        f"[{attempts[0].challenge.id}] finished processing node [{attempts[0].config.llm_config.model.value}]: {total_runs} attempts, {round(avg_train_accuracy * 100, 2)}% accuracy, {round(avg_test_accuracy * 100, 2)}% accuracy, ${round(total_cost / 100, 2)}, {round(time_took_ms / 1000, 2)} secs",
+        f"[{attempts[0].challenge.id}] finished processing node [{attempts[0].config.llm_config.model.value}]: {total_runs} attempts, {round(avg_train_accuracy * 100, 2)}% train accuracy, {round(avg_test_accuracy * 100, 2)}% test accuracy, ${round(total_cost / 100, 2)}, {round(time_took_ms / 1000, 2)} secs",
     )
 
 def percent_right_from_grids(train_output: GRID, train_attempt: GRID) -> float:

@@ -8,6 +8,7 @@ from devtools import debug
 
 from src.data import eval_challenges, training_challenges
 from src.logic import solve_challenge
+from src import logfire
 
 
 async def main() -> None:
@@ -63,6 +64,13 @@ async def main() -> None:
     # 257:260 [no examples]: 'aa4ec2a5' (wrong)
 
     # eval_ids_to_test = list(eval_challenges.keys())[272:274]
+
+    train_keys = list(training_challenges.keys())
+    print(len(train_keys))
+    random.shuffle(train_keys)
+    train_ids_to_test = train_keys[:40]
+    debug(train_ids_to_test)
+    logfire.debug(f"train_ids_to_test: {train_ids_to_test}")
 
     # do random set of 5
     eval_keys = list(eval_challenges.keys())
@@ -264,9 +272,10 @@ async def main() -> None:
     else:
         library = Library(primitives=[])
 
-    for i in range(10):
-        solved_challenges = []
-        for challenge_id in challenge_ids:
+    solved_challenges = []
+
+    for i in range(5):
+        for challenge_id in train_ids_to_test:
             if challenge_id in solved_challenges:
                 continue
             debug(challenge_id)
@@ -279,8 +288,14 @@ async def main() -> None:
             )
             # TODO: this assume test is only one example
             test_output = challenge.test[0].output
-            solution_one_correct = solutions[0][0] == test_output
-            solution_two_correct = solutions[1][0] == test_output
+            if len(solutions[0]) > 0:
+                solution_one_correct = solutions[0][0] == test_output
+            else:
+                solution_one_correct = False
+            if len(solutions[1]) > 0:
+                solution_two_correct = solutions[1][0] == test_output
+            else:
+                solution_two_correct = False
             debug(solution_one_correct, solution_two_correct)
             is_correct_final = solution_one_correct or solution_two_correct
             debug(challenge_id, is_correct_final)
@@ -288,16 +303,17 @@ async def main() -> None:
                 num_correct = num_correct + 1
                 solved_challenges.append(challenge_id)
             num_tested = num_tested + 1
-            print(f"Correct Percent SO FAR: {num_correct / num_tested}")
+            print(f"Correct Percent SO FAR: {len(solved_challenges) / len(challenge_ids)}")
         print(f"After {i+1} rounds, Solved Challenges: {solved_challenges}")
-        print(f"After {i+1} rounds, Correct Percent SO FAR: {num_correct / num_tested}")
+        logfire.debug(f"After {i+1} rounds, Correct Percent SO FAR: {len(solved_challenges) / len(challenge_ids)}")
+        print(f"After {i+1} rounds, Correct Percent SO FAR: {len(solved_challenges) / len(challenge_ids)}")
 
     # Only save library if -e flag was provided
     if args.eval:
         save_library(library, library_path)
 
     print(f"Solved Challenges: {solved_challenges}")
-    print(f"Correct Percent: {num_correct / num_tested}")
+    print(f"Correct Percent: {len(solved_challenges) / len(challenge_ids)}")
 
 
 if __name__ == "__main__":
