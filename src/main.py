@@ -275,7 +275,7 @@ async def main() -> None:
     solved_challenges = []
 
     for i in range(5):
-        for challenge_id in train_ids_to_test:
+        for idx, challenge_id in enumerate(train_ids_to_test):
             if challenge_id in solved_challenges:
                 continue
             debug(challenge_id)
@@ -303,7 +303,7 @@ async def main() -> None:
                 num_correct = num_correct + 1
                 solved_challenges.append(challenge_id)
             num_tested = num_tested + 1
-            print(f"Correct Percent SO FAR: {len(solved_challenges) / len(challenge_ids)}")
+            print(f"Round {i+1} challenge {idx}, Correct Percent SO FAR: {len(solved_challenges) / len(challenge_ids)}")
         print(f"After {i+1} rounds, Solved Challenges: {solved_challenges}")
         logfire.debug(f"After {i+1} rounds, Correct Percent SO FAR: {len(solved_challenges) / len(challenge_ids)}")
         print(f"After {i+1} rounds, Correct Percent SO FAR: {len(solved_challenges) / len(challenge_ids)}")
