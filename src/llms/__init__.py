@@ -218,7 +218,7 @@ async def get_next_message_openai(
     model: Model,
     temperature: float,
     retry_secs: int = 15,
-    max_retries: int = 15,
+    max_retries: int = 3,
     name: str = "openai",
 ) -> tuple[str, ModelUsage] | None:
     retry_count = 0

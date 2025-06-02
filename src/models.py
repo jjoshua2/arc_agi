@@ -696,7 +696,7 @@ Once you are done reasoning, rewrite the code to fix the issue. Return the code 
         raise_exception: bool,
         fixing: list["Attempt"],
         n_times: int,
-        primitive: Primitive | None = None,
+        primitives: list[Primitive] | None = None,
     ) -> list["Attempt"]:
         from src.logic import challenge_to_messages
         from src.reps import grid_diffs_to_ascii, grid_to_ascii
@@ -720,45 +720,46 @@ Once you are done reasoning, rewrite the code to fix the issue. Return the code 
             messages = cls.messages_from_fixes(
                 challenge=challenge, attempt_config=attempt_config, fixing=fixing
             )
-        if primitive:
-            diff_str = ""
-            transform_results = run_python_transform_sync(
-                code=primitive.python_code_str,
-                grid_lists=[deepcopy(train.input) for train in challenge.train],
-                timeout=5,
-                raise_exception=False,
-            )
-            if transform_results.transform_results:
-                transformed_grids = transform_results.transform_results
-                for idx, train in enumerate(challenge.train):
-                    if train.output != transformed_grids[idx]:
-                        train_input_np = np.array(train.input)
-                        train_output_np = np.array(train.output)
-                        transformed_grid_np = np.array(transformed_grids[idx])
-                        if train_output_np.shape == transformed_grid_np.shape:
-                            diff_str += (
-                                f"Example {idx} failed\n"
-                                f"# Input ASCII representation:{DOUBLE_ENTER}{grid_to_ascii(grid=train_input_np)}{DOUBLE_ENTER}"
-                                f"# Incorrect Transformed Output ASCII representation:{DOUBLE_ENTER}{grid_to_ascii(grid=transformed_grid_np)}{DOUBLE_ENTER}"
-                                f"# Expected Output ASCII representation:{DOUBLE_ENTER}{grid_to_ascii(grid=train_output_np)}{DOUBLE_ENTER}"
-                                f"# Color changes between transformed output and expected output ASCII representation:"
-                                f"{DOUBLE_ENTER}{grid_diffs_to_ascii(grid_input=transformed_grid_np, grid_output=train_output_np, separator='|')}{DOUBLE_ENTER}"
-                            )
+        if primitives:
+            for primitive in primitives:
+                diff_str = ""
+                transform_results = run_python_transform_sync(
+                    code=primitive.python_code_str,
+                    grid_lists=[deepcopy(train.input) for train in challenge.train],
+                    timeout=5,
+                    raise_exception=False,
+                )
+                if transform_results.transform_results:
+                    transformed_grids = transform_results.transform_results
+                    for idx, train in enumerate(challenge.train):
+                        if train.output != transformed_grids[idx]:
+                            train_input_np = np.array(train.input)
+                            train_output_np = np.array(train.output)
+                            transformed_grid_np = np.array(transformed_grids[idx])
+                            if train_output_np.shape == transformed_grid_np.shape:
+                                diff_str += (
+                                    f"Example {idx} failed\n"
+                                    f"# Input ASCII representation:{DOUBLE_ENTER}{grid_to_ascii(grid=train_input_np)}{DOUBLE_ENTER}"
+                                    f"# Incorrect Transformed Output ASCII representation:{DOUBLE_ENTER}{grid_to_ascii(grid=transformed_grid_np)}{DOUBLE_ENTER}"
+                                    f"# Expected Output ASCII representation:{DOUBLE_ENTER}{grid_to_ascii(grid=train_output_np)}{DOUBLE_ENTER}"
+                                    f"# Color changes between transformed output and expected output ASCII representation:"
+                                    f"{DOUBLE_ENTER}{grid_diffs_to_ascii(grid_input=transformed_grid_np, grid_output=train_output_np, separator='|')}{DOUBLE_ENTER}"
+                                )
 
-            add_primitive_message = f"""
-                Here is a primitive that you can build upon to solve this problem. Remember, it's okay to not to use this primitive too
-                if you think it's not helpful.
+                add_primitive_message = f"""
+                    Here is a primitive that you can build upon to solve this problem. Remember, it's okay to not to use this primitive too
+                    if you think it's not helpful.
 
-                {primitive.python_code_str}
+                    {primitive.python_code_str}
 
-                Here are the examples that have failed:
-                {diff_str}
-            """
-            messages.append({
-                    "role": "user",
-                    "content": [{"type": "text", "text": add_primitive_message}],
-                }
-            )
+                    Here are the examples that have failed:
+                    {diff_str}
+                """
+                messages.append({
+                        "role": "user",
+                        "content": [{"type": "text", "text": add_primitive_message}],
+                    }
+                )
         logfire.debug(f"[{challenge.id}] messages: {messages}")
         return await cls.from_messages_many(
             challenge=challenge,

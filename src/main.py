@@ -285,6 +285,7 @@ async def main() -> None:
                 challenge=challenge,
                 tree=gpt_dreamcoder_tree,
                 library=library,
+                use_primitives_weighed_by_score=True
             )
             # TODO: this assume test is only one example
             test_output = challenge.test[0].output
@@ -303,7 +304,7 @@ async def main() -> None:
                 num_correct = num_correct + 1
                 solved_challenges.append(challenge_id)
             num_tested = num_tested + 1
-            print(f"Round {i+1} challenge {idx}, Correct Percent SO FAR: {len(solved_challenges) / len(challenge_ids)}")
+            print(f"Round {i+1} challenge {idx+1}, Correct Percent SO FAR: {len(solved_challenges) / len(challenge_ids)}")
         print(f"After {i+1} rounds, Solved Challenges: {solved_challenges}")
         logfire.debug(f"After {i+1} rounds, Correct Percent SO FAR: {len(solved_challenges) / len(challenge_ids)}")
         print(f"After {i+1} rounds, Correct Percent SO FAR: {len(solved_challenges) / len(challenge_ids)}")

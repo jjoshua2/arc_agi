@@ -376,6 +376,58 @@ def get_best_primitives(
     k_top = min(k_top, len(sorted_indices))
     return [library.primitives[i] for i in sorted_indices[:k_top]]
 
+def get_best_primitives_weighed_by_score(
+    library: Library, challenge: Challenge, k_top: int
+) -> list[Primitive]:
+    if len(library.primitives) == 0:
+        return []
+    
+    # first, calculate scores for each primitive
+    example_correct: list[float] = []
+    secondary_score_lst: list[float] = []
+    for primitive in library.primitives:
+        transform_results = run_python_transform_sync(
+            code=primitive.python_code_str,
+            grid_lists=[deepcopy(train.input) for train in challenge.train],
+            timeout=5,
+            raise_exception=False, # since we are applying all primitives to all tasks
+        )
+        if transform_results.transform_results:
+            transformed_grids = transform_results.transform_results
+            num_correct = 0
+            avg_right_lst = []
+            for idx, train in enumerate(challenge.train):
+                if train.output == transformed_grids[idx]:
+                    num_correct += 1
+                train_accuracy = percent_right_from_grids(train.output, transformed_grids[idx])
+                avg_right_lst.append(train_accuracy)
+            example_correct.append(num_correct)
+            secondary_score_lst.append(sum(avg_right_lst) / len(avg_right_lst))
+        else:
+            example_correct.append(0)
+            secondary_score_lst.append(0)
+
+    # secondary score is the average of the train accuracy across examples
+    # we are essentially biasing towards primitives which get 100% on an
+    # example instead of 99% by adding primary score to secondary score
+    scores = [p + s for p, s in zip(example_correct, secondary_score_lst)]
+    
+    # Convert scores to probabilities using softmax
+    scores = np.array(scores)
+    exp_scores = np.exp(scores - np.max(scores))  # Subtract max for numerical stability
+    probabilities = exp_scores / exp_scores.sum()
+
+    # Sample k_top primitives based on probabilities
+    k_top = min(k_top, len(library.primitives))
+    selected_indices = np.random.choice(
+        len(library.primitives), 
+        size=k_top, 
+        replace=False, 
+        p=probabilities
+    )
+    
+    return [library.primitives[i] for i in selected_indices]
+
 def get_best_attempts(
     attempts: list[Attempt], k_top: int, unique_code: bool, unique_output: bool
 ) -> list[Attempt]:
@@ -585,14 +637,17 @@ async def run_tree(
     warm_cache_root: bool,
     warm_cache_fix: bool,
     library: Library = None,
+    use_primitives_weighed_by_score: bool = False,
 ) -> list[Attempt]:
     # find the best functions in the library for this challenge
-    primitives = get_best_primitives(library=library, challenge=challenge, k_top=1)
-    if primitives:
-        primitive = primitives[0]
-        print(f"[{challenge.id}] Found primitive: {primitive}")
+    if use_primitives_weighed_by_score:
+        primitives = get_best_primitives_weighed_by_score(library=library, challenge=challenge, k_top=2)
     else:
-        primitive = None
+        primitives = get_best_primitives(library=library, challenge=challenge, k_top=1)
+    if primitives:
+        print(f"[{challenge.id}] Found primitives: {primitives}")
+    else:
+        primitives = None
 
     all_attempts: list[Attempt] = []
     for root_attempt_config in tree:
@@ -606,7 +661,7 @@ async def run_tree(
             raise_exception=False,
             fixing=[],
             n_times=root_attempt_config.attempts,
-            primitive=primitive,
+            primitives=primitives,
         )
         start_eval = time.time()
         took_level = time.time() - start_level
@@ -664,7 +719,7 @@ def get_grids_from_attempt(attempt: Attempt) -> list[GRID]:
 
 
 async def solve_challenge(
-    tree: list[RootAttemptConfig], challenge: Challenge, library: Library = None, url: str = None
+    tree: list[RootAttemptConfig], challenge: Challenge, library: Library = None, url: str = None, use_primitives_weighed_by_score: bool = False
 ) -> tuple[list[GRID], list[GRID]]:
     if url:
         env_vars = {
@@ -699,7 +754,7 @@ async def solve_challenge(
     started_at_ms = time.time() * 1000
 
     attempts = await run_tree(
-        tree=tree, challenge=challenge, library=library, warm_cache_root=True, warm_cache_fix=False
+        tree=tree, challenge=challenge, library=library, warm_cache_root=True, warm_cache_fix=False, use_primitives_weighed_by_score=use_primitives_weighed_by_score
     )
     attempts = dedup_attempts(attempts)
 
