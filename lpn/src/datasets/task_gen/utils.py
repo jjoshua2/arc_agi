@@ -5,7 +5,7 @@ from typing import Any, Optional, Tuple, Callable, TypeVar, TypeAlias
 
 import matplotlib.pyplot as plt
 
-from src.visualization import arc_cmap, arc_norm
+from lpn.src.visualization import arc_cmap, arc_norm
 
 
 def plot_task(task: list[dict] | dict, title: str = None, figsize_factor: float = 3) -> None:

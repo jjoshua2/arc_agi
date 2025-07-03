@@ -7,8 +7,8 @@ import jax.numpy as jnp
 from tqdm.auto import tqdm
 import numpy as np
 
-from src.models.lpn import LPN
-from src.datasets.task_gen.re_arc_generators import ARC_TASK_NAMES
+from lpn.src.models.lpn import LPN
+from lpn.src.datasets.task_gen.re_arc_generators import ARC_TASK_NAMES
 
 
 class Evaluator:

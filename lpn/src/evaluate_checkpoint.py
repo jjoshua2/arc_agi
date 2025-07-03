@@ -216,11 +216,11 @@ from tqdm import trange
 from flax.training.train_state import TrainState
 from flax.serialization import from_bytes
 
-from src.models.lpn import LPN
-from src.evaluator import Evaluator
-from src.models.transformer import EncoderTransformer, DecoderTransformer
-from src.train import Trainer, load_datasets, instantiate_config_for_mpt
-from src.data_utils import make_leave_one_out, DATASETS_BASE_PATH
+from lpn.src.models.lpn import LPN
+from lpn.src.evaluator import Evaluator
+from lpn.src.models.transformer import EncoderTransformer, DecoderTransformer
+from lpn.src.train import Trainer, load_datasets, instantiate_config_for_mpt
+from lpn.src.data_utils import make_leave_one_out, DATASETS_BASE_PATH
 
 
 def instantiate_model(cfg: omegaconf.DictConfig, mixed_precision: bool) -> LPN:

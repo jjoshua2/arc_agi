@@ -10,9 +10,9 @@ from jax.numpy.linalg import norm
 from jax.tree_util import tree_map
 import optax
 
-from src.models.transformer import EncoderTransformer, DecoderTransformer
-from src.models.utils import EncoderTransformerConfig, DecoderTransformerConfig
-from src.data_utils import make_leave_one_out
+from lpn.src.models.transformer import EncoderTransformer, DecoderTransformer
+from lpn.src.models.utils import EncoderTransformerConfig, DecoderTransformerConfig
+from lpn.src.data_utils import make_leave_one_out
 
 
 class LPN(nn.Module):
@@ -895,7 +895,7 @@ class LPN(nn.Module):
 
 
 if __name__ == "__main__":
-    from src.models.utils import TransformerLayerConfig
+    from lpn.src.models.utils import TransformerLayerConfig
 
     batch_size = 4
     mini_batch_size = 3

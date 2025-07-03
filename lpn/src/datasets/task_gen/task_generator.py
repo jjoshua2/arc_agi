@@ -7,8 +7,8 @@ import numpy as np
 import torch
 from torch.utils.data import IterableDataset
 
-from src.datasets.task_gen.utils import is_grid, run_with_timeout
-from src.datasets.task_gen.re_arc_generators import GENERATORS_SRC_CODE, ARC_TASK_NAMES
+from lpn.src.datasets.task_gen.utils import is_grid, run_with_timeout
+from lpn.src.datasets.task_gen.re_arc_generators import GENERATORS_SRC_CODE, ARC_TASK_NAMES
 
 
 class PatternTaskGenerator(IterableDataset):
@@ -147,7 +147,7 @@ class ArcTrainTaskGenerator(IterableDataset):
 
 
 if __name__ == "__main__":
-    from src.datasets.task_gen.utils import plot_task
+    from lpn.src.datasets.task_gen.utils import plot_task
 
     task_gen = ArcTrainTaskGenerator(num_pairs=4, seed=None)
     task, info = next(iter(task_gen))

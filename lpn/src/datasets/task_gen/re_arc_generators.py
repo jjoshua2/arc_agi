@@ -1,7 +1,7 @@
 GENERATORS_SRC_CODE = """
 from random import choice, randint, sample, shuffle, uniform
 
-from src.datasets.task_gen.hodel_dsl import *
+from lpn.src.datasets.task_gen.hodel_dsl import *
 
 
 def unifint(

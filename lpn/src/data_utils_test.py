@@ -4,7 +4,7 @@ import unittest
 import jax
 import jax.numpy as jnp
 
-from src.data_utils import _apply_rotation
+from lpn.src.data_utils import _apply_rotation
 
 
 class TestDataAugmentation(unittest.TestCase):

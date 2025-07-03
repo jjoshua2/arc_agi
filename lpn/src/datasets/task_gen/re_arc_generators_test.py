@@ -1,6 +1,6 @@
 import unittest
 
-from src.datasets.task_gen.re_arc_generators import GENERATORS_SRC_CODE
+from lpn.src.datasets.task_gen.re_arc_generators import GENERATORS_SRC_CODE
 
 
 class TestReArcGenerators(unittest.TestCase):

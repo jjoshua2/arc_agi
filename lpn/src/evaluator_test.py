@@ -1,9 +1,9 @@
 import unittest
 
-from src.models.lpn import LPN
-from src.evaluator import Evaluator
-from src.models.transformer import EncoderTransformer, DecoderTransformer
-from src.models.utils import EncoderTransformerConfig, DecoderTransformerConfig
+from lpn.src.models.lpn import LPN
+from lpn.src.evaluator import Evaluator
+from lpn.src.models.transformer import EncoderTransformer, DecoderTransformer
+from lpn.src.models.utils import EncoderTransformerConfig, DecoderTransformerConfig
 
 
 class TestEvaluator(unittest.TestCase):

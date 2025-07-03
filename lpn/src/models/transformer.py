@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import jax
 from flax import linen as nn
 
-from src.models.utils import EncoderTransformerConfig, DecoderTransformerConfig, TransformerLayer
+from lpn.src.models.utils import EncoderTransformerConfig, DecoderTransformerConfig, TransformerLayer
 
 
 class EncoderTransformer(nn.Module):

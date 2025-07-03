@@ -8,8 +8,8 @@ import numpy as np
 import jax.numpy as jnp
 from tqdm.auto import trange
 
-from src.datasets.task_gen.task_generator import PatternTaskGenerator, ArcTrainTaskGenerator
-from src.data_utils import data_augmentation_fn
+from lpn.src.datasets.task_gen.task_generator import PatternTaskGenerator, ArcTrainTaskGenerator
+from lpn.src.data_utils import data_augmentation_fn
 
 
 class JAXDataLoader:
@@ -195,7 +195,7 @@ def make_dataset(
 if __name__ == "__main__":
     import time
 
-    from src.datasets.task_gen.utils import EMA
+    from lpn.src.datasets.task_gen.utils import EMA
 
     dataloader = make_task_gen_dataloader(
         batch_size=100,

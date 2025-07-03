@@ -20,24 +20,24 @@ import wandb
 import hydra
 import omegaconf
 
-from src.models.lpn import LPN
-from src.models.utils import DecoderTransformerConfig, EncoderTransformerConfig
-from src.evaluator import Evaluator
-from src.models.transformer import EncoderTransformer, DecoderTransformer
-from src.visualization import (
+from lpn.src.models.lpn import LPN
+from lpn.src.models.utils import DecoderTransformerConfig, EncoderTransformerConfig
+from lpn.src.evaluator import Evaluator
+from lpn.src.models.transformer import EncoderTransformer, DecoderTransformer
+from lpn.src.visualization import (
     visualize_dataset_generation,
     visualize_heatmap,
     visualize_tsne,
     visualize_json_submission,
 )
-from src.data_utils import (
+from lpn.src.data_utils import (
     load_datasets,
     shuffle_dataset_into_batches,
     data_augmentation_fn,
     make_leave_one_out,
     DATASETS_BASE_PATH,
 )
-from src.datasets.task_gen.dataloader import make_task_gen_dataloader, make_dataset
+from lpn.src.datasets.task_gen.dataloader import make_task_gen_dataloader, make_dataset
 
 
 logging.getLogger().setLevel(logging.INFO)
