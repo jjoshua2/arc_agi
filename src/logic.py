@@ -444,15 +444,25 @@ def get_best_primitives_by_lpn(
         if challenge.id in challenge_primitive_scores and primitive.id in challenge_primitive_scores[challenge.id]:
             cosine_similarity_lst.append(challenge_primitive_scores[challenge.id][primitive.id])
             continue
-        transform_results = run_python_transform_sync(
-            code=primitive.python_code_str,
-            grid_lists=[deepcopy(train.input) for train in challenge.train],
-            timeout=5,
-            raise_exception=False, # since we are applying all primitives to all tasks
-        )
-        if transform_results.transform_results:
+        try:
+            transform_results = run_python_transform_sync(
+                code=primitive.python_code_str,
+                grid_lists=[deepcopy(train.input) for train in challenge.train],
+                timeout=5,
+                raise_exception=False, # since we are applying all primitives to all tasks
+            )
+        except Exception as e:
+            logfire.debug(f"error running python transform: {e=} for primitive {primitive.python_code_str} and challenge {challenge.id}")
+            transform_results = None
+        if transform_results and transform_results.transform_results:
             transformed_grids = transform_results.transform_results
-            primitive_latents, _ = get_latents_from_lpn(lpn_model, evaluator, key, example_input_list, transformed_grids)
+            try:
+                primitive_latents, _ = get_latents_from_lpn(lpn_model, evaluator, key, example_input_list, transformed_grids)
+            except Exception as e:
+                logfire.debug(f"error getting latents from lpn: {e=} for primitive {primitive.python_code_str} and challenge {challenge.id}")
+                cosine_similarity_lst.append(0)
+                challenge_primitive_scores[challenge.id][primitive.id] = 0
+                continue
 
             # Calculate cosine similarity between expected and primitive latents
             # Normalize the vectors for cosine similarity calculation
