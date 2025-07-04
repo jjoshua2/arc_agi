@@ -352,6 +352,8 @@ async def main() -> None:
         library = Library(primitives=[])
 
     solved_challenges = []
+    # Dictionary to store primitive scores for each challenge (scores don't change across runs)
+    challenge_primitive_scores = {}
 
     for i in range(5):
         for idx, challenge_id in enumerate(train_ids_to_test):
@@ -367,6 +369,7 @@ async def main() -> None:
                 use_primitives_weighed_by_score=True,
                 lpn_model=lpn_model,
                 evaluator=evaluator,
+                challenge_primitive_scores=challenge_primitive_scores,
             )
             # TODO: this assume test is only one example
             test_output = challenge.test[0].output

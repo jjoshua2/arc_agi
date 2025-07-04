@@ -420,7 +420,7 @@ def get_latents_from_lpn(
     return first_context, second_context
 
 def get_best_primitives_by_lpn(
-    library: Library, challenge: Challenge, k_top: int, lpn_model: LPN, evaluator: Evaluator
+    library: Library, challenge: Challenge, k_top: int, lpn_model: LPN, evaluator: Evaluator, challenge_primitive_scores: dict[str, dict[str, float]] = None
 ) -> list[Primitive]:
     if len(library.primitives) == 0:
         return []
@@ -433,6 +433,9 @@ def get_best_primitives_by_lpn(
     cosine_similarity_lst = []
     # get respective latents for each primitive
     for primitive in library.primitives:
+        if primitive.id in challenge_primitive_scores[challenge.id]:
+            cosine_similarity_lst.append(challenge_primitive_scores[challenge.id][primitive.id])
+            continue
         transform_results = run_python_transform_sync(
             code=primitive.python_code_str,
             grid_lists=[deepcopy(train.input) for train in challenge.train],
@@ -459,9 +462,10 @@ def get_best_primitives_by_lpn(
             avg_cosine_similarity = jnp.mean(cosine_similarity)
 
             cosine_similarity_lst.append(avg_cosine_similarity)
-            
+            challenge_primitive_scores[challenge.id][primitive.id] = avg_cosine_similarity
         else:
             cosine_similarity_lst.append(0)
+            challenge_primitive_scores[challenge.id][primitive.id] = 0
 
     # Convert scores to probabilities using softmax
     scores = np.array(cosine_similarity_lst)
@@ -743,13 +747,21 @@ async def run_tree(
     use_primitives_weighed_by_score: bool = False,
     lpn_model: LPN = None,
     evaluator: Evaluator = None,
+    challenge_primitive_scores: dict[str, dict[str, float]] = None,
 ) -> list[Attempt]:
     assert not(use_primitives_weighed_by_score and lpn_model), "Cannot use both use_primitives_weighed_by_score and lpn_model"
     # find the best functions in the library for this challenge
     if use_primitives_weighed_by_score:
         primitives = get_best_primitives_weighed_by_score(library=library, challenge=challenge, k_top=2)
     elif lpn_model and evaluator:
-        primitives = get_best_primitives_by_lpn(library=library, challenge=challenge, k_top=2, lpn_model=lpn_model, evaluator=evaluator)
+        primitives = get_best_primitives_by_lpn(
+            library=library, 
+            challenge=challenge, 
+            k_top=2, 
+            lpn_model=lpn_model, 
+            evaluator=evaluator,
+            challenge_primitive_scores=challenge_primitive_scores,
+        )
     else:
         primitives = get_best_primitives(library=library, challenge=challenge, k_top=1)
     if primitives:
@@ -834,6 +846,7 @@ async def solve_challenge(
     use_primitives_weighed_by_score: bool = False,
     lpn_model: LPN = None,
     evaluator: Evaluator = None,
+    challenge_primitive_scores: dict[str, dict[float]] = None,
 ) -> tuple[list[GRID], list[GRID]]:
     if url:
         env_vars = {
@@ -876,6 +889,7 @@ async def solve_challenge(
         use_primitives_weighed_by_score=use_primitives_weighed_by_score,
         lpn_model=lpn_model,
         evaluator=evaluator,
+        challenge_primitive_scores=challenge_primitive_scores,
     )
     attempts = dedup_attempts(attempts)
 
@@ -907,7 +921,8 @@ async def solve_challenge(
 
     # TODO: only add primitive if top one scores better than best primitive on this task
     if library and top_two:
-        library.add_primitive(Primitive(python_code_str=top_two[0].python_code_str))
+        current_primitive_count = len(library.primitives)
+        library.add_primitive(Primitive(id=f"{current_primitive_count}", python_code_str=top_two[0].python_code_str))
 
     first_solution = top_two[0]
     second_solution = top_two[1]
