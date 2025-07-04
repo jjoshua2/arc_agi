@@ -10,6 +10,7 @@ from flax.serialization import from_bytes
 import jax
 import optax
 from flax.training.train_state import TrainState
+from collections import defaultdict
 
 from devtools import debug
 
@@ -353,7 +354,7 @@ async def main() -> None:
 
     solved_challenges = []
     # Dictionary to store primitive scores for each challenge (scores don't change across runs)
-    challenge_primitive_scores = {}
+    challenge_primitive_scores = defaultdict(dict)
 
     for i in range(5):
         for idx, challenge_id in enumerate(train_ids_to_test):
