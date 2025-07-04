@@ -143,6 +143,7 @@ model_price_map: dict[Model, ModelPrice] = {
 
 
 class Primitive(BaseModel):
+    id: str
     python_code_str: str
 
 class Library(BaseModel):
