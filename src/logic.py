@@ -12,6 +12,8 @@ import redis.asyncio as redis
 from devtools import debug
 from pydantic import BaseModel, TypeAdapter
 from tqdm.asyncio import tqdm_asyncio
+import jax.numpy as jnp
+import jax
 
 from src import PLOT, logfire
 from src.data import training_challenges
@@ -26,7 +28,7 @@ from src.models import (
     prompt_map,
     random_string,
     Library,
-    Primitive
+    Primitive,
 )
 from src.prompts.examples import (
     GRID_CHANGE_PROMPT_EXAMPLE_1,
@@ -45,6 +47,8 @@ from src.prompts.examples import (
 from src.render_legacy import grid_to_base64_png_oai_content
 from src.reps import array_to_str, grid_diffs_to_ascii, grid_to_ascii
 from src.run_python import run_python_transform_sync
+from lpn.src.evaluator import Evaluator
+from lpn.src.models.lpn import LPN
 
 
 class TqdmLogfire:
@@ -376,6 +380,105 @@ def get_best_primitives(
     k_top = min(k_top, len(sorted_indices))
     return [library.primitives[i] for i in sorted_indices[:k_top]]
 
+def get_latents_from_lpn(
+    lpn_model: LPN,
+    evaluator: Evaluator,
+    input_list: list[GRID],
+    output_list: list[GRID],
+) -> tuple[chex.Array, chex.Array]:
+    pair_list, shape_list = [], []
+    for input, output in zip(input_list, output_list):
+        input = jnp.array(input)
+        input_shape = input.shape
+        input, input_shape = evaluator.pad_and_crop_json(input, input_shape)
+        output = jnp.array(output)
+        output_shape = output.shape
+        output, output_shape = evaluator.pad_and_crop_json(output, output_shape)
+        pair_list.append(jnp.stack([input, output], axis=-1))
+        shape_list.append(jnp.stack(jnp.array([input_shape, output_shape]), axis=-1))
+    pairs = jnp.stack(pair_list)
+    grid_shapes = jnp.stack(shape_list)
+
+    latents_mu, latents_logvar = lpn_model.encoder(pairs, grid_shapes, True)
+
+    if latents_logvar is not None:
+        assert key is not None, "'key' argument required for variational inference."
+        key, key_latents = jax.random.split(key)
+        latents, *_ = lpn_model._sample_latents(latents_mu, latents_logvar, key_latents)
+    else:
+        latents = latents_mu
+
+    mode_kwargs = {
+        "num_steps": 9,
+        "lr": 0.01,
+    }
+
+    first_context, second_context = lpn_model._get_gradient_ascent_context(
+        latents, pairs, grid_shapes, key, **mode_kwargs
+    )
+
+    return first_context, second_context
+
+def get_best_primitives_by_lpn(
+    library: Library, challenge: Challenge, k_top: int, lpn_model: LPN, evaluator: Evaluator
+) -> list[Primitive]:
+    if len(library.primitives) == 0:
+        return []
+    
+    example_input_list = [example.input for example in challenge.train]
+    example_output_list = [example.output for example in challenge.train]
+    
+    expected_latents, _ = get_latents_from_lpn(lpn_model, evaluator, example_input_list, example_output_list)
+
+    cosine_similarity_lst = []
+    # get respective latents for each primitive
+    for primitive in library.primitives:
+        transform_results = run_python_transform_sync(
+            code=primitive.python_code_str,
+            grid_lists=[deepcopy(train.input) for train in challenge.train],
+            timeout=5,
+            raise_exception=False, # since we are applying all primitives to all tasks
+        )
+        if transform_results.transform_results:
+            transformed_grids = transform_results.transform_results
+            primitive_latents, _ = get_latents_from_lpn(lpn_model, example_input_list, transformed_grids)
+
+            # Calculate cosine similarity between expected and primitive latents
+            # Normalize the vectors for cosine similarity calculation
+            expected_norm = jnp.linalg.norm(expected_latents, axis=-1, keepdims=True)
+            primitive_norm = jnp.linalg.norm(primitive_latents, axis=-1, keepdims=True)
+            
+            # Avoid division by zero
+            expected_normalized = expected_latents / (expected_norm + 1e-8)
+            primitive_normalized = primitive_latents / (primitive_norm + 1e-8)
+            
+            # Calculate cosine similarity
+            cosine_similarity = jnp.sum(expected_normalized * primitive_normalized, axis=-1)
+            
+            # Take the mean across all examples
+            avg_cosine_similarity = jnp.mean(cosine_similarity)
+
+            cosine_similarity_lst.append(avg_cosine_similarity)
+            
+        else:
+            cosine_similarity_lst.append(0)
+
+    # Convert scores to probabilities using softmax
+    scores = np.array(cosine_similarity_lst)
+    exp_scores = np.exp(scores - np.max(scores))  # Subtract max for numerical stability
+    probabilities = exp_scores / exp_scores.sum()
+
+    # Sample k_top primitives based on probabilities
+    k_top = min(k_top, len(library.primitives))
+    selected_indices = np.random.choice(
+        len(library.primitives), 
+        size=k_top, 
+        replace=False, 
+        p=probabilities
+    )
+    
+    return [library.primitives[i] for i in selected_indices]
+
 def get_best_primitives_weighed_by_score(
     library: Library, challenge: Challenge, k_top: int
 ) -> list[Primitive]:
@@ -638,10 +741,15 @@ async def run_tree(
     warm_cache_fix: bool,
     library: Library = None,
     use_primitives_weighed_by_score: bool = False,
+    lpn_model: LPN = None,
+    evaluator: Evaluator = None,
 ) -> list[Attempt]:
+    assert not(use_primitives_weighed_by_score and lpn_model), "Cannot use both use_primitives_weighed_by_score and lpn_model"
     # find the best functions in the library for this challenge
     if use_primitives_weighed_by_score:
         primitives = get_best_primitives_weighed_by_score(library=library, challenge=challenge, k_top=2)
+    elif lpn_model and evaluator:
+        primitives = get_best_primitives_by_lpn(library=library, challenge=challenge, k_top=2, lpn_model=lpn_model, evaluator=evaluator)
     else:
         primitives = get_best_primitives(library=library, challenge=challenge, k_top=1)
     if primitives:
@@ -719,7 +827,13 @@ def get_grids_from_attempt(attempt: Attempt) -> list[GRID]:
 
 
 async def solve_challenge(
-    tree: list[RootAttemptConfig], challenge: Challenge, library: Library = None, url: str = None, use_primitives_weighed_by_score: bool = False
+    tree: list[RootAttemptConfig], 
+    challenge: Challenge, 
+    library: Library = None, 
+    url: str = None, 
+    use_primitives_weighed_by_score: bool = False,
+    lpn_model: LPN = None,
+    evaluator: Evaluator = None,
 ) -> tuple[list[GRID], list[GRID]]:
     if url:
         env_vars = {
@@ -754,7 +868,14 @@ async def solve_challenge(
     started_at_ms = time.time() * 1000
 
     attempts = await run_tree(
-        tree=tree, challenge=challenge, library=library, warm_cache_root=True, warm_cache_fix=False, use_primitives_weighed_by_score=use_primitives_weighed_by_score
+        tree=tree, 
+        challenge=challenge, 
+        library=library, 
+        warm_cache_root=True, 
+        warm_cache_fix=False, 
+        use_primitives_weighed_by_score=use_primitives_weighed_by_score,
+        lpn_model=lpn_model,
+        evaluator=evaluator,
     )
     attempts = dedup_attempts(attempts)
 

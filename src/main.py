@@ -3,19 +3,98 @@ import random
 import pickle
 import os
 import argparse
+import wandb
+import omegaconf
+import hydra
+from flax.serialization import from_bytes
+import jax
+import optax
+from flax.training.train_state import TrainState
 
 from devtools import debug
 
 from src.data import eval_challenges, training_challenges
 from src.logic import solve_challenge
 from src import logfire
+from lpn.src.models.transformer import EncoderTransformer, DecoderTransformer
+from lpn.src.models.lpn import LPN
+from lpn.src.evaluator import Evaluator
+
+def load_lpn_model(artifact_path: str = "ericpangct-s2/ARC/copper-smoke-37--checkpoint:v8") -> tuple[LPN, Evaluator]:
+    run = wandb.init()
+    artifact = run.use_artifact(artifact_path, type='model')
+    run.finish()
+    cfg = omegaconf.OmegaConf.create(artifact.metadata)
+    artifact_dir = artifact.download()
+    omegaconf.OmegaConf.save(config=cfg, f=os.path.join(artifact_dir, "config.yaml"))
+
+    cfg.encoder_transformer['_target_'] = 'lpn.src.models.utils.EncoderTransformerConfig'
+    cfg.encoder_transformer.transformer_layer['_target_'] = 'lpn.src.models.utils.TransformerLayerConfig'
+
+    cfg.decoder_transformer['_target_'] = 'lpn.src.models.utils.DecoderTransformerConfig'
+    cfg.decoder_transformer.transformer_layer['_target_'] = 'lpn.src.models.utils.TransformerLayerConfig'
+
+    encoder = EncoderTransformer(hydra.utils.instantiate(cfg.encoder_transformer))
+    decoder = DecoderTransformer(hydra.utils.instantiate(cfg.decoder_transformer))
+
+    lpn_model = LPN(encoder=encoder, decoder=decoder)
+
+    key = jax.random.PRNGKey(0)
+    grids = jax.random.randint(
+        key, (1, 3, decoder.config.max_rows, decoder.config.max_cols, 2), minval=0, maxval=decoder.config.vocab_size,
+    )
+    shapes = jax.random.randint(
+        key, (1, 3, 2, 2), minval=1, maxval=min(decoder.config.max_rows, decoder.config.max_cols) + 1,
+    )
+    variables = lpn_model.init(key, grids, shapes, dropout_eval=False, prior_kl_coeff=0.0, pairwise_kl_coeff=0.0, mode="mean")
+    evaluator = Evaluator(
+        lpn_model,
+        inference_mode="gradient_ascent",
+        inference_mode_kwargs={
+            "num_steps": 200,
+            "lr": 1.0,
+            "lr_schedule": True,
+            "optimizer": "adam",
+            "optimizer_kwargs": {"b2": 0.9},
+            "accumulate_gradients_decoder_pairs": True,
+        },
+    )
+
+    learning_rate, linear_warmup_steps = 0, 0
+    linear_warmup_scheduler = optax.warmup_exponential_decay_schedule(
+        init_value=learning_rate / (linear_warmup_steps + 1),
+        peak_value=learning_rate,
+        warmup_steps=linear_warmup_steps,
+        transition_steps=1,
+        end_value=learning_rate,
+        decay_rate=1.0,
+    )
+    optimizer = optax.chain(optax.clip_by_global_norm(1.0), optax.adamw(linear_warmup_scheduler))
+    optimizer = optax.MultiSteps(optimizer, every_k_schedule=1)
+    train_state = TrainState.create(apply_fn=lpn.apply, tx=optimizer, params=variables["params"])
+
+    ckpt_path = "state.msgpack"
+
+    with open(os.path.join(artifact_dir, ckpt_path), "rb") as data_file:
+        byte_data = data_file.read()
+    loaded_state = from_bytes(train_state, byte_data)
+
+    # Explicitly bind the model to the parameters
+    bound_lpn_model = lpn_model.bind({'params': loaded_state.params})
+    return bound_lpn_model, evaluator
 
 
 async def main() -> None:
     # Add argument parser
     parser = argparse.ArgumentParser()
     parser.add_argument("-e", "--eval", action="store_true", help="Use saved library")
+    parser.add_argument("-l", "--lpn", type=str, help="Use LPN model")
     args = parser.parse_args()
+
+    if args.lpn:
+        lpn_model, evaluator = load_lpn_model()
+    else:
+        lpn_model, evaluator = None, None
 
     num_correct: int = 0
     num_tested: int = 0
@@ -285,7 +364,9 @@ async def main() -> None:
                 challenge=challenge,
                 tree=gpt_dreamcoder_tree,
                 library=library,
-                use_primitives_weighed_by_score=True
+                use_primitives_weighed_by_score=True,
+                lpn_model=lpn_model,
+                evaluator=evaluator,
             )
             # TODO: this assume test is only one example
             test_output = challenge.test[0].output
