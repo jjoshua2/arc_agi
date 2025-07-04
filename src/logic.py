@@ -441,7 +441,7 @@ def get_best_primitives_by_lpn(
     cosine_similarity_lst = []
     # get respective latents for each primitive
     for primitive in library.primitives:
-        if primitive.id in challenge_primitive_scores[challenge.id]:
+        if challenge.id in challenge_primitive_scores and primitive.id in challenge_primitive_scores[challenge.id]:
             cosine_similarity_lst.append(challenge_primitive_scores[challenge.id][primitive.id])
             continue
         transform_results = run_python_transform_sync(
