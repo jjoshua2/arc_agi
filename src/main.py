@@ -328,25 +328,25 @@ async def main() -> None:
     from src.trees.experiments import gpt_dreamcoder_tree
     from src.models import Library
 
+    # Function to load library
+    def load_library(filename="saved_library.pkl"):
+        if os.path.exists(filename):
+            with open(filename, "rb") as f:
+                return pickle.load(f)
+            print(f"Library loaded from {filename}")
+        else:
+            print(f"No library file found at {filename}, creating new library")
+            return Library(primitives=[])
+
+    # Function to save library
+    def save_library(library, filename="saved_library.pkl"):
+        with open(filename, "wb") as f:
+            pickle.dump(library, f)
+        print(f"Library saved to {filename}")
+
     # Only use library if -e flag is provided
     library = None
     if args.eval:
-        # Function to load library
-        def load_library(filename="saved_library.pkl"):
-            if os.path.exists(filename):
-                with open(filename, "rb") as f:
-                    return pickle.load(f)
-                print(f"Library loaded from {filename}")
-            else:
-                print(f"No library file found at {filename}, creating new library")
-                return Library(primitives=[])
-
-        # Function to save library
-        def save_library(library, filename="saved_library.pkl"):
-            with open(filename, "wb") as f:
-                pickle.dump(library, f)
-            print(f"Library saved to {filename}")
-
         library_path = "saved_library.pkl"
         library = load_library(library_path)
     else:
@@ -391,9 +391,13 @@ async def main() -> None:
                 solved_challenges.append(challenge_id)
             num_tested = num_tested + 1
             print(f"Round {i+1} challenge {idx+1}, Correct Percent SO FAR: {len(solved_challenges) / len(challenge_ids)}")
+            print("Saving library...")
+            save_library(library, library_path)
         print(f"After {i+1} rounds, Solved Challenges: {solved_challenges}")
         logfire.debug(f"After {i+1} rounds, Correct Percent SO FAR: {len(solved_challenges) / len(challenge_ids)}")
         print(f"After {i+1} rounds, Correct Percent SO FAR: {len(solved_challenges) / len(challenge_ids)}")
+        print("Saving library...")
+        save_library(library)
 
     # Only save library if -e flag was provided
     if args.eval:
