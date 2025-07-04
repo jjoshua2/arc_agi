@@ -452,7 +452,7 @@ def get_best_primitives_by_lpn(
         )
         if transform_results.transform_results:
             transformed_grids = transform_results.transform_results
-            primitive_latents, _ = get_latents_from_lpn(lpn_model, example_input_list, transformed_grids)
+            primitive_latents, _ = get_latents_from_lpn(lpn_model, evaluator, key, example_input_list, transformed_grids)
 
             # Calculate cosine similarity between expected and primitive latents
             # Normalize the vectors for cosine similarity calculation
