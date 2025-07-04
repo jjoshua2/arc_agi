@@ -71,7 +71,7 @@ def load_lpn_model(artifact_path: str = "ericpangct-s2/ARC/copper-smoke-37--chec
     )
     optimizer = optax.chain(optax.clip_by_global_norm(1.0), optax.adamw(linear_warmup_scheduler))
     optimizer = optax.MultiSteps(optimizer, every_k_schedule=1)
-    train_state = TrainState.create(apply_fn=lpn.apply, tx=optimizer, params=variables["params"])
+    train_state = TrainState.create(apply_fn=lpn_model.apply, tx=optimizer, params=variables["params"])
 
     ckpt_path = "state.msgpack"
 
@@ -81,7 +81,7 @@ def load_lpn_model(artifact_path: str = "ericpangct-s2/ARC/copper-smoke-37--chec
 
     # Explicitly bind the model to the parameters
     bound_lpn_model = lpn_model.bind({'params': loaded_state.params})
-    return bound_lpn_model, evaluator
+    return bound_lpn_model, evaluator, key
 
 
 async def main() -> None:
@@ -92,9 +92,9 @@ async def main() -> None:
     args = parser.parse_args()
 
     if args.lpn:
-        lpn_model, evaluator = load_lpn_model()
+        lpn_model, evaluator, key = load_lpn_model()
     else:
-        lpn_model, evaluator = None, None
+        lpn_model, evaluator, key = None, None, None
 
     num_correct: int = 0
     num_tested: int = 0
@@ -366,9 +366,10 @@ async def main() -> None:
                 challenge=challenge,
                 tree=gpt_dreamcoder_tree,
                 library=library,
-                use_primitives_weighed_by_score=True,
+                use_primitives_weighed_by_score=False,
                 lpn_model=lpn_model,
                 evaluator=evaluator,
+                key=key,
                 challenge_primitive_scores=challenge_primitive_scores,
             )
             # TODO: this assume test is only one example

@@ -14,6 +14,7 @@ from pydantic import BaseModel, TypeAdapter
 from tqdm.asyncio import tqdm_asyncio
 import jax.numpy as jnp
 import jax
+import chex
 
 from src import PLOT, logfire
 from src.data import training_challenges
@@ -383,6 +384,7 @@ def get_best_primitives(
 def get_latents_from_lpn(
     lpn_model: LPN,
     evaluator: Evaluator,
+    key: chex.PRNGKey,
     input_list: list[GRID],
     output_list: list[GRID],
 ) -> tuple[chex.Array, chex.Array]:
@@ -402,7 +404,7 @@ def get_latents_from_lpn(
     latents_mu, latents_logvar = lpn_model.encoder(pairs, grid_shapes, True)
 
     if latents_logvar is not None:
-        assert key is not None, "'key' argument required for variational inference."
+        # TODO: try generate a key everytime to encourage exploration
         key, key_latents = jax.random.split(key)
         latents, *_ = lpn_model._sample_latents(latents_mu, latents_logvar, key_latents)
     else:
@@ -420,7 +422,13 @@ def get_latents_from_lpn(
     return first_context, second_context
 
 def get_best_primitives_by_lpn(
-    library: Library, challenge: Challenge, k_top: int, lpn_model: LPN, evaluator: Evaluator, challenge_primitive_scores: dict[str, dict[str, float]] = None
+    library: Library, 
+    challenge: Challenge, 
+    k_top: int, 
+    lpn_model: LPN, 
+    evaluator: Evaluator, 
+    key: chex.PRNGKey,
+    challenge_primitive_scores: dict[str, dict[str, float]] = None,
 ) -> list[Primitive]:
     if len(library.primitives) == 0:
         return []
@@ -428,7 +436,7 @@ def get_best_primitives_by_lpn(
     example_input_list = [example.input for example in challenge.train]
     example_output_list = [example.output for example in challenge.train]
     
-    expected_latents, _ = get_latents_from_lpn(lpn_model, evaluator, example_input_list, example_output_list)
+    expected_latents, _ = get_latents_from_lpn(lpn_model, evaluator, key, example_input_list, example_output_list)
 
     cosine_similarity_lst = []
     # get respective latents for each primitive
@@ -747,6 +755,7 @@ async def run_tree(
     use_primitives_weighed_by_score: bool = False,
     lpn_model: LPN = None,
     evaluator: Evaluator = None,
+    key: chex.PRNGKey = None,
     challenge_primitive_scores: dict[str, dict[str, float]] = None,
 ) -> list[Attempt]:
     assert not(use_primitives_weighed_by_score and lpn_model), "Cannot use both use_primitives_weighed_by_score and lpn_model"
@@ -760,6 +769,7 @@ async def run_tree(
             k_top=2, 
             lpn_model=lpn_model, 
             evaluator=evaluator,
+            key=key,
             challenge_primitive_scores=challenge_primitive_scores,
         )
     else:
@@ -846,6 +856,7 @@ async def solve_challenge(
     use_primitives_weighed_by_score: bool = False,
     lpn_model: LPN = None,
     evaluator: Evaluator = None,
+    key: chex.PRNGKey = None,
     challenge_primitive_scores: dict[str, dict[float]] = None,
 ) -> tuple[list[GRID], list[GRID]]:
     if url:
@@ -889,6 +900,7 @@ async def solve_challenge(
         use_primitives_weighed_by_score=use_primitives_weighed_by_score,
         lpn_model=lpn_model,
         evaluator=evaluator,
+        key=key,
         challenge_primitive_scores=challenge_primitive_scores,
     )
     attempts = dedup_attempts(attempts)
