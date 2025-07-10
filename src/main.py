@@ -391,8 +391,8 @@ async def main() -> None:
                 solved_challenges.append(challenge_id)
             num_tested = num_tested + 1
             print(f"Round {i+1} challenge {idx+1}, Correct Percent SO FAR: {len(solved_challenges) / len(challenge_ids)}")
-            print("Saving library...")
-            save_library(library, library_path)
+            logfire.debug(f"Round {i+1} challenge {idx+1}, Correct Percent SO FAR: {len(solved_challenges) / len(challenge_ids)}")
+        logfire.debug(f"After {i+1} rounds, Solved Challenges: {solved_challenges}")
         print(f"After {i+1} rounds, Solved Challenges: {solved_challenges}")
         logfire.debug(f"After {i+1} rounds, Correct Percent SO FAR: {len(solved_challenges) / len(challenge_ids)}")
         print(f"After {i+1} rounds, Correct Percent SO FAR: {len(solved_challenges) / len(challenge_ids)}")
