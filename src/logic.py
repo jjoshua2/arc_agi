@@ -346,197 +346,6 @@ def percent_right_from_grids(train_output: GRID, train_attempt: GRID) -> float:
         logfire.debug(f"in percent right from grids: {e=}")
         return 0
 
-def get_best_primitives_by_lpn_vmap(
-    library: Library, 
-    challenge: Challenge, 
-    k_top: int, 
-    lpn_model: LPN, 
-    evaluator: Evaluator, 
-    key: chex.PRNGKey,
-    challenge_primitive_scores: dict[str, dict[str, float]] = None,
-    batch_size: int = 50,  # Process primitives in batches to avoid memory issues
-) -> list[Primitive]:
-    """Vectorized version using jax.vmap for parallel LPN inference."""
-    if len(library.primitives) == 0:
-        return []
-    
-    example_input_list = [example.input for example in challenge.train]
-    example_output_list = [example.output for example in challenge.train]
-    
-    expected_latents, _ = get_latents_from_lpn(lpn_model, evaluator, key, example_input_list, example_output_list)
-
-    # Filter out already computed primitives
-    primitives_to_compute = []
-    cosine_similarity_lst = []
-    
-    for primitive in library.primitives:
-        if challenge.id in challenge_primitive_scores and primitive.id in challenge_primitive_scores[challenge.id]:
-            cosine_similarity_lst.append(challenge_primitive_scores[challenge.id][primitive.id])
-        else:
-            primitives_to_compute.append(primitive)
-            cosine_similarity_lst.append(None)  # Placeholder
-    
-    if primitives_to_compute:
-        # Process primitives in batches to avoid memory issues
-        primitive_batches = [primitives_to_compute[i:i + batch_size] for i in range(0, len(primitives_to_compute), batch_size)]
-        
-        for batch in primitive_batches:
-            batch_results = process_primitive_batch_vmap(
-                batch, challenge, lpn_model, evaluator, key, example_input_list, expected_latents
-            )
-            
-            # Update results
-            for i, (primitive, result) in enumerate(zip(batch, batch_results)):
-                global_idx = library.primitives.index(primitive)
-                cosine_similarity_lst[global_idx] = result
-                
-                if challenge_primitive_scores is not None:
-                    if challenge.id not in challenge_primitive_scores:
-                        challenge_primitive_scores[challenge.id] = {}
-                    challenge_primitive_scores[challenge.id][primitive.id] = result
-
-    # Convert scores to probabilities using softmax
-    scores = np.array(cosine_similarity_lst)
-    exp_scores = np.exp(scores - np.max(scores))  # Subtract max for numerical stability
-    probabilities = exp_scores / exp_scores.sum()
-
-    # Sample k_top primitives based on probabilities
-    k_top = min(k_top, len(library.primitives))
-    selected_indices = np.random.choice(
-        len(library.primitives), 
-        size=k_top, 
-        replace=False, 
-        p=probabilities
-    )
-    
-    return [library.primitives[i] for i in selected_indices]
-
-def process_primitive_batch_vmap(
-    primitives: list[Primitive], 
-    challenge: Challenge, 
-    lpn_model: LPN, 
-    evaluator: Evaluator,
-    key: chex.PRNGKey,
-    example_input_list: list[GRID], 
-    expected_latents: chex.Array
-) -> list[float]:
-    """Process a batch of primitives using jax.vmap for vectorized LPN inference."""
-    
-    # First, run Python transforms for all primitives in the batch
-    transform_results_list = []
-    valid_primitives = []
-    
-    for primitive in primitives:
-        try:
-            transform_results = run_python_transform_sync(
-                code=primitive.python_code_str,
-                grid_lists=[deepcopy(train.input) for train in challenge.train],
-                timeout=5,
-                raise_exception=False,
-            )
-            if transform_results and transform_results.transform_results:
-                transform_results_list.append(transform_results.transform_results)
-                valid_primitives.append(primitive)
-            else:
-                # Add None for invalid primitives
-                transform_results_list.append(None)
-                valid_primitives.append(primitive)
-        except Exception as e:
-            logfire.debug(f"error running python transform: {e=} for primitive {primitive.python_code_str} and challenge {challenge.id}")
-            transform_results_list.append(None)
-            valid_primitives.append(primitive)
-    
-    # Filter out None results and batch the valid ones
-    valid_transforms = [t for t in transform_results_list if t is not None]
-    valid_indices = [i for i, t in enumerate(transform_results_list) if t is not None]
-    
-    if not valid_transforms:
-        return [0.0] * len(primitives)
-    
-    # Vectorize the LPN inference using jax.vmap
-    try:
-        # Stack all transformed grids for batch processing
-        batched_transformed_grids = jnp.stack(valid_transforms)
-        
-        # Use vmap to process all primitives at once
-        primitive_latents_batch, _ = jax.vmap(
-            lambda grids: get_latents_from_lpn(lpn_model, evaluator, key, example_input_list, grids)
-        )(batched_transformed_grids)
-        
-        # Calculate cosine similarities for all primitives at once
-        expected_norm = jnp.linalg.norm(expected_latents, axis=-1, keepdims=True)
-        primitive_norms = jnp.linalg.norm(primitive_latents_batch, axis=-1, keepdims=True)
-        
-        expected_normalized = expected_latents / (expected_norm + 1e-8)
-        primitive_normalized = primitive_latents_batch / (primitive_norms + 1e-8)
-        
-        # Vectorized cosine similarity calculation
-        cosine_similarities = jnp.sum(expected_normalized[None, ...] * primitive_normalized, axis=-1)
-        avg_cosine_similarities = jnp.mean(cosine_similarities, axis=-1)
-        
-        # Convert to list and handle invalid primitives
-        results = [0.0] * len(primitives)
-        for i, (valid_idx, similarity) in enumerate(zip(valid_indices, avg_cosine_similarities)):
-            results[valid_idx] = float(similarity)
-        
-        return results
-        
-    except Exception as e:
-        logfire.debug(f"Error in vectorized processing: {e}")
-        # Fall back to sequential processing for this batch
-        return process_primitive_batch_sequential(
-            primitives, challenge, lpn_model, evaluator, key, example_input_list, expected_latents
-        )
-
-def process_primitive_batch_sequential(
-    primitives: list[Primitive], 
-    challenge: Challenge, 
-    lpn_model: LPN, 
-    evaluator: Evaluator,
-    key: chex.PRNGKey,
-    example_input_list: list[GRID], 
-    expected_latents: chex.Array
-) -> list[float]:
-    """Fallback sequential processing when vmap fails."""
-    results = []
-    for primitive in primitives:
-        try:
-            transform_results = run_python_transform_sync(
-                code=primitive.python_code_str,
-                grid_lists=[deepcopy(train.input) for train in challenge.train],
-                timeout=5,
-                raise_exception=False,
-            )
-            
-            if transform_results and transform_results.transform_results:
-                transformed_grids = transform_results.transform_results
-                try:
-                    primitive_latents, _ = get_latents_from_lpn(lpn_model, evaluator, key, example_input_list, transformed_grids)
-                except Exception as e:
-                    logfire.debug(f"error getting latents from lpn: {e=} for primitive {primitive.python_code_str} and challenge {challenge.id}")
-                    results.append(0.0)
-                    continue
-
-                # Calculate cosine similarity
-                expected_norm = jnp.linalg.norm(expected_latents, axis=-1, keepdims=True)
-                primitive_norm = jnp.linalg.norm(primitive_latents, axis=-1, keepdims=True)
-                
-                expected_normalized = expected_latents / (expected_norm + 1e-8)
-                primitive_normalized = primitive_latents / (primitive_norm + 1e-8)
-                
-                cosine_similarity = jnp.sum(expected_normalized * primitive_normalized, axis=-1)
-                avg_cosine_similarity = jnp.mean(cosine_similarity)
-                
-                results.append(float(avg_cosine_similarity))
-            else:
-                results.append(0.0)
-                
-        except Exception as e:
-            logfire.debug(f"error running python transform: {e=} for primitive {primitive.python_code_str} and challenge {challenge.id}")
-            results.append(0.0)
-    
-    return results
-
 
 def get_best_primitives(
     library: Library, challenge: Challenge, k_top: int
@@ -692,7 +501,6 @@ def process_primitive_batch_vmap(
     
     # First, run Python transforms for all primitives in the batch
     transform_results_list = []
-    valid_primitives = []
     
     for primitive in primitives:
         try:
@@ -704,15 +512,12 @@ def process_primitive_batch_vmap(
             )
             if transform_results and transform_results.transform_results:
                 transform_results_list.append(transform_results.transform_results)
-                valid_primitives.append(primitive)
             else:
                 # Add None for invalid primitives
                 transform_results_list.append(None)
-                valid_primitives.append(primitive)
         except Exception as e:
             logfire.debug(f"error running python transform: {e=} for primitive {primitive.python_code_str} and challenge {challenge.id}")
             transform_results_list.append(None)
-            valid_primitives.append(primitive)
     
     # Filter out None results and batch the valid ones
     valid_transforms = [t for t in transform_results_list if t is not None]
@@ -723,8 +528,9 @@ def process_primitive_batch_vmap(
     
     # Vectorize the LPN inference using jax.vmap
     try:
-        # Stack all transformed grids for batch processing
-        batched_transformed_grids = jnp.stack(valid_transforms)
+        # Convert lists to JAX arrays and stack for batch processing
+        jax_transforms = [jnp.array(t) for t in valid_transforms]
+        batched_transformed_grids = jnp.stack(jax_transforms)
         
         # Use vmap to process all primitives at once
         primitive_latents_batch, _ = jax.vmap(
@@ -750,7 +556,7 @@ def process_primitive_batch_vmap(
         return results
         
     except Exception as e:
-        logfire.debug(f"Error in vectorized processing: {e}")
+        logfire.debug(f"Error in vectorized processing: {e}. Falling back to sequential processing.")
         # Fall back to sequential processing for this batch
         return process_primitive_batch_sequential(
             primitives, challenge, lpn_model, evaluator, key, example_input_list, expected_latents
