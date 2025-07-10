@@ -497,7 +497,7 @@ def process_primitive_batch_vmap(
     example_input_list: list[GRID], 
     expected_latents: chex.Array
 ) -> list[float]:
-    """Process a batch of primitives using jax.vmap for vectorized LPN inference."""
+    """Process a batch of primitives using jax.lax.map for parallel LPN inference."""
     
     # First, run Python transforms for all primitives in the batch
     transform_results_list = []
@@ -519,100 +519,54 @@ def process_primitive_batch_vmap(
             logfire.debug(f"error running python transform: {e=} for primitive {primitive.python_code_str} and challenge {challenge.id}")
             transform_results_list.append(None)
     
-    # Filter out None results and group by shape
+    # Filter out None results
     valid_transforms = [t for t in transform_results_list if t is not None]
     valid_indices = [i for i, t in enumerate(transform_results_list) if t is not None]
     
     if not valid_transforms:
         return [0.0] * len(primitives)
     
-    # Group primitives by the shape of their transformed grids
-    shape_groups = {}
-    for i, (transform, valid_idx) in enumerate(zip(valid_transforms, valid_indices)):
-        # Use the shape of the first example as the key
-        shape_key = tuple(np.array(transform[0]).shape)
-        if shape_key not in shape_groups:
-            shape_groups[shape_key] = []
-        shape_groups[shape_key].append((transform, valid_idx, i))
+    # Define function to process a single primitive
+    def process_single_primitive(transform):
+        try:
+            primitive_latents, _ = get_latents_from_lpn(lpn_model, evaluator, key, example_input_list, transform)
+            
+            # Calculate cosine similarity
+            expected_norm = jnp.linalg.norm(expected_latents, axis=-1, keepdims=True)
+            primitive_norm = jnp.linalg.norm(primitive_latents, axis=-1, keepdims=True)
+            
+            expected_normalized = expected_latents / (expected_norm + 1e-8)
+            primitive_normalized = primitive_latents / (primitive_norm + 1e-8)
+            
+            cosine_similarity = jnp.sum(expected_normalized * primitive_normalized, axis=-1)
+            avg_cosine_similarity = jnp.mean(cosine_similarity)
+            
+            return float(avg_cosine_similarity)
+        except Exception as e:
+            logfire.debug(f"Error processing primitive: {e}")
+            return 0.0
     
-    # Initialize results array
-    results = [0.0] * len(primitives)
-    
-    # Process each shape group in parallel
-    for shape_key, group in shape_groups.items():
-        if len(group) == 1:
-            # Single primitive in this shape group - process sequentially
-            transform, valid_idx, _ = group[0]
-            try:
-                primitive_latents, _ = get_latents_from_lpn(lpn_model, evaluator, key, example_input_list, transform)
-                
-                # Calculate cosine similarity
-                expected_norm = jnp.linalg.norm(expected_latents, axis=-1, keepdims=True)
-                primitive_norm = jnp.linalg.norm(primitive_latents, axis=-1, keepdims=True)
-                
-                expected_normalized = expected_latents / (expected_norm + 1e-8)
-                primitive_normalized = primitive_latents / (primitive_norm + 1e-8)
-                
-                cosine_similarity = jnp.sum(expected_normalized * primitive_normalized, axis=-1)
-                avg_cosine_similarity = jnp.mean(cosine_similarity)
-                
-                results[valid_idx] = float(avg_cosine_similarity)
-            except Exception as e:
-                logfire.debug(f"Error processing single primitive: {e}")
-                results[valid_idx] = 0.0
-        else:
-            # Multiple primitives with same shape - process in parallel
-            try:
-                transforms = [item[0] for item in group]
-                valid_indices_group = [item[1] for item in group]
-                
-                # Convert to JAX arrays and stack
-                jax_transforms = [jnp.array(t) for t in transforms]
-                batched_transformed_grids = jnp.stack(jax_transforms)
-                
-                # Use vmap to process all primitives in this shape group at once
-                primitive_latents_batch, _ = jax.vmap(
-                    lambda grids: get_latents_from_lpn(lpn_model, evaluator, key, example_input_list, grids)
-                )(batched_transformed_grids)
-                
-                # Calculate cosine similarities for all primitives at once
-                expected_norm = jnp.linalg.norm(expected_latents, axis=-1, keepdims=True)
-                primitive_norms = jnp.linalg.norm(primitive_latents_batch, axis=-1, keepdims=True)
-                
-                expected_normalized = expected_latents / (expected_norm + 1e-8)
-                primitive_normalized = primitive_latents_batch / (primitive_norms + 1e-8)
-                
-                # Vectorized cosine similarity calculation
-                cosine_similarities = jnp.sum(expected_normalized[None, ...] * primitive_normalized, axis=-1)
-                avg_cosine_similarities = jnp.mean(cosine_similarities, axis=-1)
-                
-                # Update results for this group
-                for valid_idx, similarity in zip(valid_indices_group, avg_cosine_similarities):
-                    results[valid_idx] = float(similarity)
-                    
-            except Exception as e:
-                logfire.debug(f"Error in vectorized processing for shape {shape_key}: {e}. Falling back to sequential processing for this group.")
-                # Fall back to sequential processing for this shape group
-                for transform, valid_idx, _ in group:
-                    try:
-                        primitive_latents, _ = get_latents_from_lpn(lpn_model, evaluator, key, example_input_list, transform)
-                        
-                        # Calculate cosine similarity
-                        expected_norm = jnp.linalg.norm(expected_latents, axis=-1, keepdims=True)
-                        primitive_norm = jnp.linalg.norm(primitive_latents, axis=-1, keepdims=True)
-                        
-                        expected_normalized = expected_latents / (expected_norm + 1e-8)
-                        primitive_normalized = primitive_latents / (primitive_norm + 1e-8)
-                        
-                        cosine_similarity = jnp.sum(expected_normalized * primitive_normalized, axis=-1)
-                        avg_cosine_similarity = jnp.mean(cosine_similarity)
-                        
-                        results[valid_idx] = float(avg_cosine_similarity)
-                    except Exception as e2:
-                        logfire.debug(f"Error in sequential fallback: {e2}")
-                        results[valid_idx] = 0.0
-    
-    return results
+    # Use jax.lax.map for parallel processing
+    try:
+        # Convert to JAX arrays for processing
+        jax_transforms = [jnp.array(t) for t in valid_transforms]
+        
+        # Process all primitives in parallel using jax.lax.map
+        similarities = jax.lax.map(process_single_primitive, jax_transforms)
+        
+        # Convert back to list and handle invalid primitives
+        results = [0.0] * len(primitives)
+        for valid_idx, similarity in zip(valid_indices, similarities):
+            results[valid_idx] = float(similarity)
+        
+        return results
+        
+    except Exception as e:
+        logfire.debug(f"Error in parallel processing: {e}. Falling back to sequential processing.")
+        # Fall back to sequential processing
+        return process_primitive_batch_sequential(
+            primitives, challenge, lpn_model, evaluator, key, example_input_list, expected_latents
+        )
 
 def process_primitive_batch_sequential(
     primitives: list[Primitive], 
