@@ -549,8 +549,7 @@ def process_primitive_batch_parallel(
         similarities = []
         for transform in valid_transforms:
             try:
-                jax_transform = jnp.array(transform)
-                similarity = jitted_process_single_primitive(jax_transform)
+                similarity = jitted_process_single_primitive(transform)
                 similarities.append(float(similarity))
             except Exception as e:
                 logfire.debug(f"Error processing primitive: {e}")
