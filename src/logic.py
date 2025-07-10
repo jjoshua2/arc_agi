@@ -458,7 +458,7 @@ def get_best_primitives_by_lpn_vmap(
         primitive_batches = [primitives_to_compute[i:i + batch_size] for i in range(0, len(primitives_to_compute), batch_size)]
         
         for batch in primitive_batches:
-            batch_results = process_primitive_batch_vmap(
+            batch_results = process_primitive_batch_parallel(
                 batch, challenge, lpn_model, evaluator, key, example_input_list, expected_latents
             )
             
@@ -488,7 +488,7 @@ def get_best_primitives_by_lpn_vmap(
     
     return [library.primitives[i] for i in selected_indices]
 
-def process_primitive_batch_vmap(
+def process_primitive_batch_parallel(
     primitives: list[Primitive], 
     challenge: Challenge, 
     lpn_model: LPN, 
@@ -526,9 +526,11 @@ def process_primitive_batch_vmap(
     if not valid_transforms:
         return [0.0] * len(primitives)
     
-    # Define function to process a single primitive
-    def process_single_primitive(transform):
-        try:
+    # Use Python for loop with JIT compilation for parallel processing
+    try:
+        # JIT compile the processing function for better performance
+        @jax.jit
+        def jitted_process_single_primitive(transform):
             primitive_latents, _ = get_latents_from_lpn(lpn_model, evaluator, key, example_input_list, transform)
             
             # Calculate cosine similarity
@@ -541,28 +543,28 @@ def process_primitive_batch_vmap(
             cosine_similarity = jnp.sum(expected_normalized * primitive_normalized, axis=-1)
             avg_cosine_similarity = jnp.mean(cosine_similarity)
             
-            return float(avg_cosine_similarity)
-        except Exception as e:
-            logfire.debug(f"Error processing primitive: {e}")
-            return 0.0
-    
-    # Use jax.lax.map for parallel processing
-    try:
-        # Convert to JAX arrays for processing
-        jax_transforms = [jnp.array(t) for t in valid_transforms]
+            return avg_cosine_similarity
         
-        # Process all primitives in parallel using jax.lax.map
-        similarities = jax.lax.map(process_single_primitive, jax_transforms)
+        # Process each primitive individually with JIT compilation
+        similarities = []
+        for transform in valid_transforms:
+            try:
+                jax_transform = jnp.array(transform)
+                similarity = jitted_process_single_primitive(jax_transform)
+                similarities.append(float(similarity))
+            except Exception as e:
+                logfire.debug(f"Error processing primitive: {e}")
+                similarities.append(0.0)
         
         # Convert back to list and handle invalid primitives
         results = [0.0] * len(primitives)
         for valid_idx, similarity in zip(valid_indices, similarities):
-            results[valid_idx] = float(similarity)
+            results[valid_idx] = similarity
         
         return results
         
     except Exception as e:
-        logfire.debug(f"Error in parallel processing: {e}. Falling back to sequential processing.")
+        logfire.debug(f"Error in JIT processing: {e}. Falling back to sequential processing.")
         # Fall back to sequential processing
         return process_primitive_batch_sequential(
             primitives, challenge, lpn_model, evaluator, key, example_input_list, expected_latents
