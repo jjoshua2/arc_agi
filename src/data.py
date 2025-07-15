@@ -6,6 +6,7 @@ from pydantic import TypeAdapter
 from src.models import Challenge
 
 arc_prize_data_path = Path(__file__).parent.parent / "arc-prize-2024"
+arc_prize_v2_data_path = Path(__file__).parent.parent / "arc-agi-2"
 SolutionAdapter = TypeAdapter(dict[str, list[list[list[int]]]])
 ChallengeAdapter = TypeAdapter(dict[str, Challenge])
 
@@ -36,6 +37,20 @@ def build_challenges(
         v["id"] = k
     return ChallengeAdapter.validate_python(challenges_j)
 
+def build_challenges_v2(
+    challenges_path: Path
+) -> dict[str, Challenge]:
+    # Read every file in the directory and use the file_path prefix as the key in the challenges_j dictionary
+    challenges_j = {}
+    for file_path in sorted(challenges_path.iterdir()):
+        if file_path.is_file() and file_path.suffix == ".json":
+            with open(file_path) as f:
+                file_challenge = json.load(f)
+                # Use the file name without suffix as the key
+                key = file_path.stem
+                challenges_j[key] = file_challenge
+                challenges_j[key]["id"] = key
+    return ChallengeAdapter.validate_python(challenges_j)
 
 training_challenges = build_challenges(
     challenges_path=arc_prize_data_path / "arc-agi_training_challenges.json",
@@ -44,6 +59,13 @@ training_challenges = build_challenges(
 eval_challenges = build_challenges(
     challenges_path=arc_prize_data_path / "arc-agi_evaluation_challenges.json",
     solutions_path=arc_prize_data_path / "arc-agi_evaluation_solutions.json",
+)
+
+v2_training_challenges = build_challenges_v2(
+    challenges_path=arc_prize_v2_data_path / "training",
+)
+v2_eval_challenges = build_challenges_v2(
+    challenges_path=arc_prize_v2_data_path / "evaluation",
 )
 
 """
