@@ -230,7 +230,7 @@ async def get_next_message_openai(
             request_id = random_string()
             start = time.time()
             logfire.debug(f"[{request_id}] calling openai")
-            print(f"[{request_id}] calling openai")
+            print(f"[{request_id}] calling openai with model {model.value}")
             message = await openai_client.chat.completions.create(
                 **extra_params,
                 max_completion_tokens=16384,
@@ -266,6 +266,58 @@ async def get_next_message_openai(
             await asyncio.sleep(retry_secs)
     return message.choices[0].message.content, usage
 
+async def get_next_message_xai(
+    xai_client: AsyncOpenAI,
+    messages: list[dict[str, T.Any]],
+    model: Model,
+    temperature: float,
+    retry_secs: int = 15,
+    max_retries: int = 3,
+    name: str = "xai",
+) -> tuple[str, ModelUsage] | None:
+    retry_count = 0
+    extra_params = {}
+    extra_params["temperature"] = temperature
+    while True:
+        try:
+            request_id = random_string()
+            start = time.time()
+            logfire.debug(f"[{request_id}] calling {name}")
+            print(f"[{request_id}] calling {name} with model {model.value}")
+            message = await xai_client.chat.completions.create(
+                **extra_params,
+                max_completion_tokens=16384,
+                messages=messages,
+                model=model.value,
+            )
+            took_ms = (time.time() - start) * 1000
+            cached_tokens = message.usage.prompt_tokens_details.cached_tokens
+            usage = ModelUsage(
+                cache_creation_input_tokens=0,
+                cache_read_input_tokens=cached_tokens,
+                input_tokens=message.usage.prompt_tokens - cached_tokens,
+                output_tokens=message.usage.completion_tokens,
+            )
+            logfire.debug(
+                f"[{request_id}] got back {name}, took {took_ms:.2f}, {usage}, cost_cents={Attempt.cost_cents_from_usage(model=model, usage=usage)}"
+            )
+            print(
+                f"[{request_id}] got back {name}, took {took_ms:.2f}, {usage}, cost_cents={Attempt.cost_cents_from_usage(model=model, usage=usage)}"
+            )
+            break  # Success, exit the loop
+        except Exception as e:
+            logfire.debug(
+                f"Other {name} error: {str(e)}, retrying in {retry_count} seconds ({retry_count}/{max_retries})..."
+            )
+            print(
+                f"Other {name} error: {str(e)}, retrying in {retry_count} seconds ({retry_count}/{max_retries})..."
+            )
+            retry_count += 1
+            if retry_count >= max_retries:
+                # raise  # Re-raise the exception after max retries
+                return None
+            await asyncio.sleep(retry_secs)
+    return message.choices[0].message.content, usage
 
 async def get_next_message_gemini(
     cache: gemini_caching.CachedContent,
@@ -479,6 +531,33 @@ async def get_next_messages(
         else:
             raise ValueError(f"Invalid model: {model}")
         # filter out the Nones
+    elif model in [Model.grok_3, Model.grok_4]:
+        xai_client = AsyncOpenAI(
+            api_key=os.environ["XAI_API_KEY"],
+            base_url="https://api.x.ai/v1",
+        )
+
+        print("Created xai client")
+
+        n_messages = [
+            await get_next_message_xai(
+                xai_client=xai_client,
+                messages=messages,
+                model=model,
+                temperature=temperature,
+            ),
+            *await asyncio.gather(
+                *[
+                    get_next_message_xai(
+                        openai_client=xai_client,
+                        messages=messages,
+                        model=model,
+                        temperature=temperature,
+                    )
+                    for _ in range(n_times - 1)
+                ]
+            ),
+        ]
         return [m for m in n_messages if m]
     elif model in [Model.gemini_1_5_pro]:
         if messages[0]["role"] == "system":
