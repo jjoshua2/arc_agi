@@ -14,7 +14,7 @@ from collections import defaultdict
 
 from devtools import debug
 
-from src.data import eval_challenges, training_challenges
+from src.data import eval_challenges, training_challenges, v2_training_challenges, v2_eval_challenges
 from src.logic import solve_challenge
 from src import logfire
 from lpn.src.models.transformer import EncoderTransformer, DecoderTransformer
@@ -146,16 +146,22 @@ async def main() -> None:
     # eval_ids_to_test = list(eval_challenges.keys())[272:274]
 
     train_keys = list(training_challenges.keys())
-    print(len(train_keys))
-    random.shuffle(train_keys)
-    train_ids_to_test = train_keys[:40]
+    v2_train_keys = list(v2_training_challenges.keys())
+    print(f"v2 training set size: {len(v2_train_keys)}")
+    logfire.debug(f"v2 training set size: {len(v2_train_keys)}")
+    #random.shuffle(v2_train_keys)
+    train_ids_to_test = v2_train_keys
     debug(train_ids_to_test)
     logfire.debug(f"train_ids_to_test: {train_ids_to_test}")
 
     # do random set of 5
-    eval_keys = list(eval_challenges.keys())
-    random.shuffle(eval_keys)
-    eval_ids_to_test = eval_keys[:5]
+    #eval_keys = list(eval_challenges.keys())
+    #random.shuffle(eval_keys)
+    #eval_ids_to_test = eval_keys[:5]
+    
+    eval_ids_to_test = list(v2_eval_challenges.keys())
+    print(f"v2 eval set size: {len(eval_ids_to_test)}")
+    logfire.debug(f"v2 eval set size: {len(eval_ids_to_test)}")
     # take random 10 sample fro eval_ids_to_test
     debug(eval_ids_to_test)
 
@@ -304,13 +310,13 @@ async def main() -> None:
     ]
     # so far, claude 57.6% (19/33)
 
-    eval_ids_to_test = [
-        "bd14c3bf",  # wrong but some examples correct
+    #eval_ids_to_test = [
+        #"bd14c3bf",  # wrong but some examples correct
         # "ca8de6ea",  # correct
         # "b0f4d537",
         # "54db823b",
         # "e69241bd",
-    ]
+    #]
 
     from src.trees import big_tree, medium_tree, small_tree
     from src.trees.small import (
@@ -325,7 +331,7 @@ async def main() -> None:
         o1_mini_flat_tree,
         o1_mini_small_tree,
     )
-    from src.trees.experiments import gpt_dreamcoder_tree
+    from src.trees.experiments import gpt_dreamcoder_tree, grok_dreamcoder_tree
     from src.models import Library
 
     # Function to load library
@@ -347,27 +353,43 @@ async def main() -> None:
     # Only use library if -e flag is provided
     library = None
     if args.eval:
-        library_path = "saved_library.pkl"
+        #library_path = "saved_library.pkl"
+        library_path = "saved_library_1000.pkl"
         library = load_library(library_path)
     else:
         library = Library(primitives=[])
+
+    print(f"library size: {len(library.primitives)}")
+    logfire.debug(f"library size: {len(library.primitives)}")
 
     solved_challenges = []
     # Dictionary to store primitive scores for each challenge (scores don't change across runs)
     challenge_primitive_scores = defaultdict(dict)
 
     for i in range(5):
-        for idx, challenge_id in enumerate(train_ids_to_test):
+        for idx, challenge_id in enumerate(eval_ids_to_test):
             if challenge_id in solved_challenges:
                 continue
             debug(challenge_id)
-            challenge = training_challenges[challenge_id]
+            challenge = v2_eval_challenges[challenge_id]
             # challenge = eval_challenges[challenge_id]
+            """
             solutions = await solve_challenge(
                 challenge=challenge,
                 tree=gpt_dreamcoder_tree,
                 library=library,
                 use_primitives_weighed_by_score=False,
+                lpn_model=lpn_model,
+                evaluator=evaluator,
+                key=key,
+                challenge_primitive_scores=challenge_primitive_scores,
+            )
+            """
+            solutions = await solve_challenge(
+                challenge=challenge,
+                tree=grok_dreamcoder_tree,
+                library=library,
+                use_primitives_weighed_by_score=True,
                 lpn_model=lpn_model,
                 evaluator=evaluator,
                 key=key,
@@ -390,8 +412,10 @@ async def main() -> None:
                 num_correct = num_correct + 1
                 solved_challenges.append(challenge_id)
             num_tested = num_tested + 1
-            print(f"Round {i+1} challenge {idx+1}, Correct Percent SO FAR: {len(solved_challenges) / len(challenge_ids)}")
-            logfire.debug(f"Round {i+1} challenge {idx+1}, Correct Percent SO FAR: {len(solved_challenges) / len(challenge_ids)}")
+            print(f"Round {i+1} challenge {idx+1}, Correct Percent SO FAR: {len(solved_challenges) / len(train_ids_to_test)}")
+            logfire.debug(f"Round {i+1} challenge {idx+1}, Correct Percent SO FAR: {len(solved_challenges) / len(train_ids_to_test)}")
+            if (idx + 1) % 50 == 0:
+                save_library(library, f"saved_library_{idx+1}.pkl")
         logfire.debug(f"After {i+1} rounds, Solved Challenges: {solved_challenges}")
         print(f"After {i+1} rounds, Solved Challenges: {solved_challenges}")
         logfire.debug(f"After {i+1} rounds, Correct Percent SO FAR: {len(solved_challenges) / len(challenge_ids)}")

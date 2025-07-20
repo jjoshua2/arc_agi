@@ -286,10 +286,12 @@ async def get_next_message_xai(
             print(f"[{request_id}] calling {name} with model {model.value}")
             message = await xai_client.chat.completions.create(
                 **extra_params,
-                max_completion_tokens=16384,
+                #max_completion_tokens=40384, # max_completion_tokens is None so model generates up to max
                 messages=messages,
                 model=model.value,
+                timeout=1800, # 1800 seconds = 30 minutes
             )
+            print(f"[{request_id}] message: {message}")
             took_ms = (time.time() - start) * 1000
             cached_tokens = message.usage.prompt_tokens_details.cached_tokens
             usage = ModelUsage(
@@ -535,6 +537,7 @@ async def get_next_messages(
         xai_client = AsyncOpenAI(
             api_key=os.environ["XAI_API_KEY"],
             base_url="https://api.x.ai/v1",
+            timeout=1800, # 1800 seconds = 30 minutes
         )
 
         print("Created xai client")

@@ -404,7 +404,7 @@ class Attempt(BaseModel):
                     deepcopy(challenge.test[0].input),
                     *[deepcopy(train.input) for train in challenge.train],
                 ],
-                timeout=7,
+                timeout=20,
                 raise_exception=True,
             )
             logfire.debug(
@@ -480,7 +480,8 @@ class Attempt(BaseModel):
             )
             print(f"[{challenge.id}] BIG PROBLEM***** Error getting next messages: {e}")
             return []
-        print(f"[{challenge.id}] inside from messages many")
+        print(f"[{challenge.id}] llm responses: {next_messages}")
+        logfire.debug(f"[{challenge.id}] llm responses: {next_messages}")
         start_grid = time.time()
         llm_responses = [m[0] for m in next_messages]
         grid_lists = None
@@ -512,6 +513,10 @@ class Attempt(BaseModel):
                 challenge=challenge,
                 returns_python=attempt_config.prompt_config.returns_python,
             )
+            if not any(grid_lists):
+                logfire.debug(f"[{challenge.id}] grid lists are all None")
+                print(f"[{challenge.id}] grid lists are all None")
+                return []
         logfire.debug(f"[{challenge.id}] grids took {time.time() - start_grid} secs")
         print(f"[{challenge.id}] grids took {time.time() - start_grid} secs")
         attempts: list[Attempt] = []
