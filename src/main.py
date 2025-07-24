@@ -176,10 +176,7 @@ async def main() -> None:
         debug(solution_one_correct, solution_two_correct)
         is_correct_final = solution_one_correct or solution_two_correct
         debug(challenge_id, is_correct_final)
-        if is_correct_final:
-            num_correct = num_correct + 1
-            solved_challenges.append(challenge_id)
-        num_tested = num_tested + 1
+
         return is_correct_final
 
     for i in range(3):
@@ -199,8 +196,8 @@ async def main() -> None:
                     num_correct = num_correct + 1
                     solved_challenges.append(challenge_id)
                 num_tested = num_tested + 1
-            print(f"Round {i+1} challenge {j+1}, Correct SO FAR: {len(solved_challenges)}")
-            logfire.debug(f"Round {i+1} challenge {j+1}, Correct SO FAR: {len(solved_challenges)}")
+            print(f"Round {i+1} challenge {j+1}, Correct SO FAR: {len(solved_challenges)} solved. {solved_challenges}")
+            logfire.debug(f"Round {i+1} challenge {j+1}, Correct SO FAR: {len(solved_challenges)} solved. {solved_challenges}")
 
         logfire.debug(f"After {i+1} rounds, Solved Challenges: {solved_challenges}")
         print(f"After {i+1} rounds, Solved Challenges: {solved_challenges}")
