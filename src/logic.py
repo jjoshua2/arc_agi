@@ -200,7 +200,7 @@ def challenge_to_messages(
                         "role": "user",
                         "content": example_1_grid_change_prompt,
                     },
-                    {"role": "assistant", "content": example_1_reasoning_grid_change},
+                    {"role": "assistant", "content": [ {"type": "text", "text": example_1_reasoning_grid_change} ]},
                 ]
             )
         else:
@@ -235,7 +235,7 @@ def challenge_to_messages(
                     },
                     {
                         "role": "assistant",
-                        "content": example_1_same_grid_reasoning,
+                        "content": [ {"type": "text", "text": example_1_same_grid_reasoning} ],
                     },
                 ]
             )
@@ -326,6 +326,7 @@ def eval_attempts(
     print(
         f"[{attempts[0].challenge.id}] finished processing node [{attempts[0].config.llm_config.model.value}]: {total_runs} attempts, {round(avg_train_accuracy * 100, 2)}% train accuracy, {round(avg_test_accuracy * 100, 2)}% test accuracy, ${round(total_cost / 100, 2)}, {round(time_took_ms / 1000, 2)} secs",
     )
+    logfire.debug(f"[{attempts[0].challenge.id}] finished processing node [{attempts[0].config.llm_config.model.value}]: {total_runs} attempts, {round(avg_train_accuracy * 100, 2)}% train accuracy, {round(avg_test_accuracy * 100, 2)}% test accuracy, ${round(total_cost / 100, 2)}, {round(time_took_ms / 1000, 2)} secs")
 
 def percent_right_from_grids(train_output: GRID, train_attempt: GRID) -> float:
     try:
@@ -1059,6 +1060,55 @@ def get_grids_from_attempt(attempt: Attempt) -> list[GRID]:
     )
     return transform_results.transform_results
 
+
+async def can_primitive_solve_challenge_async(
+    primitive: Primitive,
+    challenge: Challenge,
+) -> bool:
+    try:
+        transform_train_results = run_python_transform_sync(
+            code=primitive.python_code_str,
+            grid_lists=[deepcopy(train.input) for train in challenge.train],
+            timeout=5,
+            raise_exception=False, # since we are applying all primitives to all tasks
+        )
+        transform_eval_results = run_python_transform_sync(
+            code=primitive.python_code_str,
+            grid_lists=[deepcopy(test.input) for test in challenge.test],
+            timeout=5,
+            raise_exception=False, # since we are applying all primitives to all tasks
+        )
+        if transform_train_results.transform_results and transform_eval_results.transform_results:
+            transformed_train_grids = transform_train_results.transform_results
+            transformed_eval_grids = transform_eval_results.transform_results
+            num_train_correct, num_eval_correct = 0, 0
+            for idx, train in enumerate(challenge.train):
+                if train.output == transformed_train_grids[idx]:
+                    num_train_correct += 1
+            for idx, test in enumerate(challenge.test):
+                if test.output == transformed_eval_grids[idx]:
+                    num_eval_correct += 1
+            if num_train_correct == len(challenge.train) and num_eval_correct == len(challenge.test):
+                return True
+        return False
+    except Exception as e:
+        logfire.debug(f"[{challenge.id}] Error applying primitive {primitive.id}: {e}")
+        return False
+    
+
+async def can_library_solve_challenge(
+    library: Library,
+    challenge: Challenge,
+) -> bool:
+    # Create tasks for all primitives
+    tasks = [
+        can_primitive_solve_challenge_async(primitive, challenge) 
+        for primitive in library.primitives
+    ]
+    # Execute all tasks in parallel
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    return any(results)
+    
 
 async def solve_challenge(
     tree: list[RootAttemptConfig], 
