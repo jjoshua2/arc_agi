@@ -13,6 +13,8 @@ from anthropic import AsyncAnthropic, RateLimitError
 from devtools import debug
 from google.generativeai import caching as gemini_caching
 from openai import AsyncAzureOpenAI, AsyncOpenAI
+from xai_sdk import AsyncClient
+from xai_sdk.chat import user, assistant, system, image
 
 from src import logfire
 from src.logic import random_string
@@ -267,12 +269,12 @@ async def get_next_message_openai(
     return message.choices[0].message.content, usage
 
 async def get_next_message_xai(
-    xai_client: AsyncOpenAI,
+    xai_client: AsyncClient,
     messages: list[dict[str, T.Any]],
     model: Model,
     temperature: float,
     retry_secs: int = 15,
-    max_retries: int = 3,
+    max_retries: int = 0,
     name: str = "xai",
 ) -> tuple[str, ModelUsage] | None:
     retry_count = 0
@@ -284,16 +286,37 @@ async def get_next_message_xai(
             start = time.time()
             logfire.debug(f"[{request_id}] calling {name}")
             print(f"[{request_id}] calling {name} with model {model.value}")
-            message = await xai_client.chat.completions.create(
-                **extra_params,
-                #max_completion_tokens=40384, # max_completion_tokens is None so model generates up to max
-                messages=messages,
-                model=model.value,
-                timeout=1800, # 1800 seconds = 30 minutes
-            )
-            print(f"[{request_id}] message: {message}")
+            chat = xai_client.chat.create(model=model.value, max_tokens=80000)
+
+            print(f"[{request_id}] chat successfully created")
+            
+            # Convert messages to XAI format
+            for msg in messages:
+                if msg["role"] == "system":
+                    role = system
+                elif msg["role"] == "user":
+                    role = user
+                elif msg["role"] == "assistant":
+                    role = assistant
+                else:
+                    raise ValueError(f"Invalid role: {msg['role']}")
+
+                for content in msg["content"]:
+                    if content["type"] == "text":
+                        chat.append(role(content["text"]))
+                    elif content["type"] == "image_url":
+                        chat.append(role(image(content["image_url"]["url"])))
+                    else:
+                        raise ValueError(f"Invalid content type: {content['type']}")
+
+            logfire.debug(f"[{request_id}] chat: {chat}")
+            
+            message = await chat.sample()
+
+            print(f"[{request_id}] message: {message.content}")
+            logfire.debug(f"[{request_id}] message: {message.content}")
             took_ms = (time.time() - start) * 1000
-            cached_tokens = message.usage.prompt_tokens_details.cached_tokens
+            cached_tokens = message.usage.cached_prompt_text_tokens
             usage = ModelUsage(
                 cache_creation_input_tokens=0,
                 cache_read_input_tokens=cached_tokens,
@@ -301,10 +324,10 @@ async def get_next_message_xai(
                 output_tokens=message.usage.completion_tokens,
             )
             logfire.debug(
-                f"[{request_id}] got back {name}, took {took_ms:.2f}, {usage}, cost_cents={Attempt.cost_cents_from_usage(model=model, usage=usage)}"
+                f"[{request_id}] got back {name}, took {took_ms:.2f}, {usage}, reasoning tokens={message.usage.reasoning_tokens}, cost_cents={Attempt.cost_cents_from_usage(model=model, usage=usage)}"
             )
             print(
-                f"[{request_id}] got back {name}, took {took_ms:.2f}, {usage}, cost_cents={Attempt.cost_cents_from_usage(model=model, usage=usage)}"
+                f"[{request_id}] got back {name}, took {took_ms:.2f}, {usage}, reasoning tokens={message.usage.reasoning_tokens}, cost_cents={Attempt.cost_cents_from_usage(model=model, usage=usage)}"
             )
             break  # Success, exit the loop
         except Exception as e:
@@ -319,7 +342,7 @@ async def get_next_message_xai(
                 # raise  # Re-raise the exception after max retries
                 return None
             await asyncio.sleep(retry_secs)
-    return message.choices[0].message.content, usage
+    return message.content, usage
 
 async def get_next_message_gemini(
     cache: gemini_caching.CachedContent,
@@ -534,33 +557,24 @@ async def get_next_messages(
             raise ValueError(f"Invalid model: {model}")
         # filter out the Nones
     elif model in [Model.grok_3, Model.grok_4]:
-        xai_client = AsyncOpenAI(
+        xai_client = AsyncClient(
             api_key=os.environ["XAI_API_KEY"],
-            base_url="https://api.x.ai/v1",
-            timeout=1800, # 1800 seconds = 30 minutes
+            timeout=3600, # 3600 seconds = 60 minutes
         )
 
         print("Created xai client")
 
-        n_messages = [
-            await get_next_message_xai(
-                xai_client=xai_client,
-                messages=messages,
-                model=model,
-                temperature=temperature,
-            ),
-            *await asyncio.gather(
-                *[
-                    get_next_message_xai(
-                        openai_client=xai_client,
-                        messages=messages,
-                        model=model,
-                        temperature=temperature,
-                    )
-                    for _ in range(n_times - 1)
-                ]
-            ),
-        ]
+        n_messages = await asyncio.gather(
+            *[
+                get_next_message_xai(
+                    xai_client=xai_client,
+                    messages=messages,
+                    model=model,
+                    temperature=temperature,
+                )
+                for _ in range(n_times)
+            ]
+        )
         return [m for m in n_messages if m]
     elif model in [Model.gemini_1_5_pro]:
         if messages[0]["role"] == "system":
