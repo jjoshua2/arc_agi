@@ -286,7 +286,7 @@ async def get_next_message_xai(
             start = time.time()
             logfire.debug(f"[{request_id}] calling {name}")
             print(f"[{request_id}] calling {name} with model {model.value}")
-            chat = xai_client.chat.create(model=model.value, max_tokens=80000)
+            chat = xai_client.chat.create(model=model.value, max_tokens=120000)
 
             print(f"[{request_id}] chat successfully created")
             
