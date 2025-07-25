@@ -2,7 +2,7 @@ import asyncio
 import pickle
 import os
 import argparse
-
+from collections import defaultdict
 
 from devtools import debug
 
@@ -44,7 +44,7 @@ async def main() -> None:
             print(f"No library file found at {filename}, creating new library")
             return Library(primitives=[])
 
-    library_path = "saved_library_eval_100.pkl"
+    library_path = "saved_library_1000.pkl"
     library = load_library(library_path)
 
     print(f"library size: {len(library.primitives)}")
@@ -55,6 +55,8 @@ async def main() -> None:
         return
 
     solved_challenges = []
+    # Dictionary to store primitive scores for each challenge (scores don't change across runs)
+    challenge_primitive_scores = defaultdict(dict)
 
     for challenge_id in eval_ids_to_test:
         debug(challenge_id)
@@ -63,10 +65,14 @@ async def main() -> None:
         can_solve = await can_library_solve_challenge(
             challenge=challenge,
             library=library,
+            challenge_primitive_scores=challenge_primitive_scores,
         )
         if can_solve:
             solved_challenges.append(challenge_id)
             print(f"Solved Challenge {challenge_id}")
+
+    with open("challenge_primitive_scores.pkl", "wb") as f:
+        pickle.dump(challenge_primitive_scores, f)
         
     logfire.debug(f"Solved Challenges: {solved_challenges}")
     print(f"Solved Challenges: {solved_challenges}")

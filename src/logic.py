@@ -1064,6 +1064,7 @@ def get_grids_from_attempt(attempt: Attempt) -> list[GRID]:
 async def can_primitive_solve_challenge_async(
     primitive: Primitive,
     challenge: Challenge,
+    challenge_primitive_scores: dict[str, dict[float]] = None,
 ) -> bool:
     try:
         transform_train_results = run_python_transform_sync(
@@ -1082,12 +1083,19 @@ async def can_primitive_solve_challenge_async(
             transformed_train_grids = transform_train_results.transform_results
             transformed_eval_grids = transform_eval_results.transform_results
             num_train_correct, num_eval_correct = 0, 0
+            avg_right_lst: list[float] = []
             for idx, train in enumerate(challenge.train):
                 if train.output == transformed_train_grids[idx]:
                     num_train_correct += 1
+                train_accuracy = percent_right_from_grids(train.output, transformed_train_grids[idx])
+                avg_right_lst.append(train_accuracy)
             for idx, test in enumerate(challenge.test):
                 if test.output == transformed_eval_grids[idx]:
                     num_eval_correct += 1
+
+            secondary_score = sum(avg_right_lst) / len(avg_right_lst)
+            challenge_primitive_scores[challenge.id][primitive.id] = num_train_correct + secondary_score
+
             if num_train_correct == len(challenge.train) and num_eval_correct == len(challenge.test):
                 return True
         return False
@@ -1099,10 +1107,11 @@ async def can_primitive_solve_challenge_async(
 async def can_library_solve_challenge(
     library: Library,
     challenge: Challenge,
+    challenge_primitive_scores: dict[str, dict[float]] = None,
 ) -> bool:
     # Create tasks for all primitives
     tasks = [
-        can_primitive_solve_challenge_async(primitive, challenge) 
+        can_primitive_solve_challenge_async(primitive, challenge, challenge_primitive_scores) 
         for primitive in library.primitives
     ]
     # Execute all tasks in parallel
