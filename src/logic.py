@@ -1094,7 +1094,7 @@ async def can_primitive_solve_challenge_async(
                     num_eval_correct += 1
 
             secondary_score = sum(avg_right_lst) / len(avg_right_lst)
-            challenge_primitive_scores[challenge.id][primitive.id] = num_train_correct + secondary_score
+            challenge_primitive_scores[challenge.id][primitive.id] = float(num_train_correct) + secondary_score
 
             if num_train_correct == len(challenge.train) and num_eval_correct == len(challenge.test):
                 return True
