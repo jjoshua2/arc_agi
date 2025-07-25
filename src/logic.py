@@ -620,8 +620,16 @@ def process_primitive_batch_sequential(
     
     return results
 
-async def evaluate_primitive_weighed_async(primitive: Primitive, challenge: Challenge) -> tuple[float, float]:
+async def evaluate_primitive_weighed_async(
+        primitive: Primitive, 
+        challenge: Challenge, 
+        challenge_primitive_scores: dict[str, dict[str, tuple[float, float]]] = None
+    ) -> tuple[float, float]:
     """Evaluate a single primitive asynchronously for weighed scoring."""
+    if challenge_primitive_scores is not None:
+        if challenge.id in challenge_primitive_scores and primitive.id in challenge_primitive_scores[challenge.id]:
+            return challenge_primitive_scores[challenge.id][primitive.id]
+
     try:
         transform_results = run_python_transform_sync(
             code=primitive.python_code_str,
@@ -646,7 +654,10 @@ async def evaluate_primitive_weighed_async(primitive: Primitive, challenge: Chal
         return 0.0, 0.0
 
 async def get_best_primitives_weighed_by_score_async(
-    library: Library, challenge: Challenge, k_top: int
+    library: Library, 
+    challenge: Challenge, 
+    k_top: int, 
+    challenge_primitive_scores: dict[str, dict[str, tuple[float, float]]] = None
 ) -> list[Primitive]:
     """Parallel version of get_best_primitives_weighed_by_score using asyncio."""
     if len(library.primitives) == 0:
@@ -654,7 +665,7 @@ async def get_best_primitives_weighed_by_score_async(
     
     # Create tasks for all primitives
     tasks = [
-        evaluate_primitive_weighed_async(primitive, challenge) 
+        evaluate_primitive_weighed_async(primitive, challenge, challenge_primitive_scores) 
         for primitive in library.primitives
     ]
     
@@ -963,7 +974,8 @@ async def run_tree(
     lpn_model: LPN = None,
     evaluator: Evaluator = None,
     key: chex.PRNGKey = None,
-    challenge_primitive_scores: dict[str, dict[str, float]] = None,
+    challenge_primitive_lpn_scores: dict[str, dict[str, float]] = None,
+    challenge_primitive_accuracy_scores: dict[str, dict[str, tuple[float, float]]] = None,
 ) -> list[Attempt]:
     assert not(use_primitives_weighed_by_score and lpn_model), "Cannot use both use_primitives_weighed_by_score and lpn_model"
     # find the best functions in the library for this challenge
@@ -972,7 +984,7 @@ async def run_tree(
             library=library, 
             challenge=challenge,
             k_top=2,
-            #challenge_primitive_scores=challenge_primitive_scores,
+            challenge_primitive_scores=challenge_primitive_accuracy_scores,
         )
     elif lpn_model and evaluator:
         primitives = get_best_primitives_by_lpn_vmap(
@@ -982,7 +994,7 @@ async def run_tree(
             lpn_model=lpn_model, 
             evaluator=evaluator,
             key=key,
-            challenge_primitive_scores=challenge_primitive_scores,
+            challenge_primitive_scores=challenge_primitive_lpn_scores,
         )
     else:
         primitives = get_best_primitives(library=library, challenge=challenge, k_top=1)
@@ -1094,7 +1106,7 @@ async def can_primitive_solve_challenge_async(
                     num_eval_correct += 1
 
             secondary_score = sum(avg_right_lst) / len(avg_right_lst)
-            challenge_primitive_scores[challenge.id][primitive.id] = float(num_train_correct) + secondary_score
+            challenge_primitive_scores[challenge.id][primitive.id] = (float(num_train_correct), secondary_score)
 
             if num_train_correct == len(challenge.train) and num_eval_correct == len(challenge.test):
                 return True
@@ -1128,7 +1140,8 @@ async def solve_challenge(
     lpn_model: LPN = None,
     evaluator: Evaluator = None,
     key: chex.PRNGKey = None,
-    challenge_primitive_scores: dict[str, dict[float]] = None,
+    challenge_primitive_lpn_scores: dict[str, dict[str, float]] = None,
+    challenge_primitive_accuracy_scores: dict[str, dict[str, tuple[float, float]]] = None,
 ) -> tuple[list[GRID], list[GRID]]:
     if url:
         env_vars = {
@@ -1173,7 +1186,8 @@ async def solve_challenge(
         lpn_model=lpn_model,
         evaluator=evaluator,
         key=key,
-        challenge_primitive_scores=challenge_primitive_scores,
+        challenge_primitive_lpn_scores=challenge_primitive_lpn_scores,
+        challenge_primitive_accuracy_scores=challenge_primitive_accuracy_scores,
     )
     attempts = dedup_attempts(attempts)
 

@@ -73,7 +73,7 @@ async def main() -> None:
         logfire.debug(f"challenge_primitive_scores size {len(challenge_primitive_scores)}")
         logfire.debug(f"challenge_primitive_scores primitive size {len(challenge_primitive_scores[challenge_id])}")
 
-    with open("challenge_primitive_scores.pkl", "wb") as f:
+    with open("challenge_primitive_accuracy_scores.pkl", "wb") as f:
         pickle.dump(challenge_primitive_scores, f)
         
     logfire.debug(f"Solved Challenges: {solved_challenges}")

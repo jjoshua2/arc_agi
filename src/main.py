@@ -123,6 +123,13 @@ async def main() -> None:
             pickle.dump(library, f)
         print(f"Library saved to {filename}")
 
+    def load_challenge_primitive_accuracy_scores(filename="challenge_primitive_accuracy_scores.pkl"):
+        if os.path.exists(filename):
+            with open(filename, "rb") as f:
+                return pickle.load(f)
+        else:
+            return defaultdict(dict)
+
     # Only use library if -e flag is provided
     library = None
     if args.eval:
@@ -136,8 +143,10 @@ async def main() -> None:
     logfire.debug(f"library size: {len(library.primitives)}")
 
     solved_challenges = set()
-    # Dictionary to store primitive scores for each challenge (scores don't change across runs)
-    challenge_primitive_scores = defaultdict(dict)
+    # Dictionary to store primitive lpn scores for each challenge (scores don't change across runs)
+    challenge_primitive_lpn_scores = defaultdict(dict)
+    # Dictionary to store primitive naive accuracy scores (how many squares it gets correct)
+    challenge_primitive_accuracy_scores = load_challenge_primitive_accuracy_scores()
 
     async def try_solve_challenge(challenge_id: str, solved_challenges: list[str]) -> bool:
         if challenge_id in solved_challenges:
@@ -152,7 +161,8 @@ async def main() -> None:
             lpn_model=lpn_model,
             evaluator=evaluator,
             key=key,
-            challenge_primitive_scores=challenge_primitive_scores,
+            challenge_primitive_lpn_scores=challenge_primitive_lpn_scores,
+            challenge_primitive_accuracy_scores=challenge_primitive_accuracy_scores,
         )
 
         if len(challenge.test) != len(solutions[0]):
