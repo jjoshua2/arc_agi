@@ -58,7 +58,7 @@ async def main() -> None:
     # Dictionary to store primitive scores for each challenge (scores don't change across runs)
     challenge_primitive_scores = defaultdict(dict)
 
-    for challenge_id in eval_ids_to_test:
+    for idx, challenge_id in enumerate(eval_ids_to_test):
         debug(challenge_id)
         challenge = v2_eval_challenges[challenge_id]
 
@@ -69,7 +69,9 @@ async def main() -> None:
         )
         if can_solve:
             solved_challenges.append(challenge_id)
-            print(f"Solved Challenge {challenge_id}")
+        logfire.debug(f"after {idx} challenges, solved {len(solved_challenges)} challenges")
+        logfire.debug(f"challenge_primitive_scores size {len(challenge_primitive_scores)}")
+        logfire.debug(f"challenge_primitive_scores primitive size {len(challenge_primitive_scores[challenge_id])}")
 
     with open("challenge_primitive_scores.pkl", "wb") as f:
         pickle.dump(challenge_primitive_scores, f)
