@@ -135,7 +135,7 @@ async def main() -> None:
     print(f"library size: {len(library.primitives)}")
     logfire.debug(f"library size: {len(library.primitives)}")
 
-    solved_challenges = []
+    solved_challenges = set()
     # Dictionary to store primitive scores for each challenge (scores don't change across runs)
     challenge_primitive_scores = defaultdict(dict)
 
@@ -193,11 +193,9 @@ async def main() -> None:
             
             for solved, challenge_id in zip(results, batch_eval_ids_to_test):
                 if solved:
-                    num_correct = num_correct + 1
-                    solved_challenges.append(challenge_id)
-                num_tested = num_tested + 1
-            print(f"Round {i+1} challenge {j+1}, Correct SO FAR: {len(solved_challenges)} solved. {solved_challenges}")
-            logfire.debug(f"Round {i+1} challenge {j+1}, Correct SO FAR: {len(solved_challenges)} solved. {solved_challenges}")
+                    solved_challenges.add(challenge_id)
+            print(f"Round {i+1} challenge {j+batch_size}, Correct SO FAR: {len(solved_challenges)} solved. {solved_challenges}")
+            logfire.debug(f"Round {i+1} challenge {j+batch_size}, Correct SO FAR: {len(solved_challenges)} solved. {solved_challenges}")
 
         logfire.debug(f"After {i+1} rounds, Solved Challenges: {solved_challenges}")
         print(f"After {i+1} rounds, Solved Challenges: {solved_challenges}")
