@@ -646,7 +646,9 @@ async def evaluate_primitive_weighed_async(
                     num_correct += 1
                 train_accuracy = percent_right_from_grids(train.output, transformed_grids[idx])
                 avg_right_lst.append(train_accuracy)
-            return float(num_correct), sum(avg_right_lst) / len(avg_right_lst)
+            secondary_score = sum(avg_right_lst) / len(avg_right_lst)
+            challenge_primitive_scores[challenge.id][primitive.id] = (float(num_correct), secondary_score)
+            return float(num_correct), secondary_score
         else:
             return 0.0, 0.0
     except Exception as e:

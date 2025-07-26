@@ -147,11 +147,13 @@ async def main() -> None:
     challenge_primitive_lpn_scores = defaultdict(dict)
     # Dictionary to store primitive naive accuracy scores (how many squares it gets correct)
     challenge_primitive_accuracy_scores = load_challenge_primitive_accuracy_scores()
+    print(f"challenge_primitive_accuracy_scores length: {len(challenge_primitive_accuracy_scores)}")
 
     async def try_solve_challenge(challenge_id: str, solved_challenges: list[str]) -> bool:
         if challenge_id in solved_challenges:
             return True
         debug(challenge_id)
+        print(f"value length: {len(challenge_primitive_accuracy_scores[challenge_id])}")
         challenge = v2_eval_challenges[challenge_id]
         solutions = await solve_challenge(
             challenge=challenge,
@@ -190,7 +192,7 @@ async def main() -> None:
         return is_correct_final
 
     for i in range(3):
-        batch_size = 30
+        batch_size = 40
         for j in range(0, len(eval_ids_to_test), batch_size):
             batch_eval_ids_to_test = eval_ids_to_test[j:j+batch_size]
             tasks = [
