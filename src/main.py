@@ -191,7 +191,7 @@ async def main() -> None:
 
         return is_correct_final
 
-    for i in range(3):
+    for i in range(2):
         batch_size = 40
         for j in range(0, len(eval_ids_to_test), batch_size):
             batch_eval_ids_to_test = eval_ids_to_test[j:j+batch_size]
