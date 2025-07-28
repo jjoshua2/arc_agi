@@ -1,4 +1,5 @@
 import json
+import random
 import os
 import time
 import traceback
@@ -1005,6 +1006,9 @@ async def run_tree(
         logfire.debug(f"[{challenge.id}] Found primitives: {primitives}")
     else:
         primitives = None
+
+    # To prevent rate limiting, we sleep for a random amount of time between 0 and 10 seconds
+    await asyncio.sleep(random.random() * 10)
 
     all_attempts: list[Attempt] = []
     for root_attempt_config in tree:
