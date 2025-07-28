@@ -156,6 +156,10 @@ async def main() -> None:
         debug(challenge_id)
         print(f"value length: {len(challenge_primitive_accuracy_scores[challenge_id])}")
         challenge = v2_eval_challenges[challenge_id]
+
+        # To prevent rate limiting, we sleep for a random amount of time between 0 and 10 seconds
+        await asyncio.sleep(random.random() * 10)
+
         solutions = await solve_challenge(
             challenge=challenge,
             tree=grok_dreamcoder_tree,
