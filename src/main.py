@@ -90,6 +90,7 @@ async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("-e", "--eval", action="store_true", help="Use saved library")
     parser.add_argument("-l", "--lpn", type=str, help="Use LPN model")
+    parser.add_argument("-v1", "--version1", action="store_true", help="Test on ARC-AGI-1 public eval set")
     args = parser.parse_args()
 
     if args.lpn:
@@ -99,10 +100,15 @@ async def main() -> None:
 
     num_correct: int = 0
     num_tested: int = 0
+    total_cost_in_cents: int = 0.0
+
+    if args.version1:
+        eval_ids_to_test = list(eval_challenges.keys())
+    else:
+        eval_ids_to_test = list(v2_eval_challenges.keys())
     
-    eval_ids_to_test = list(v2_eval_challenges.keys())
-    print(f"v2 eval set size: {len(eval_ids_to_test)}")
-    logfire.debug(f"v2 eval set size: {len(eval_ids_to_test)}")
+    print(f"eval set size: {len(eval_ids_to_test)}")
+    logfire.debug(f"eval set size: {len(eval_ids_to_test)}")
     debug(eval_ids_to_test)
 
     from src.trees.experiments import grok_dreamcoder_tree
@@ -150,7 +156,7 @@ async def main() -> None:
     challenge_primitive_accuracy_scores = defaultdict(dict)
     #print(f"challenge_primitive_accuracy_scores length: {len(challenge_primitive_accuracy_scores)}")
 
-    async def try_solve_challenge(challenge_id: str, solved_challenges: list[str]) -> bool:
+    async def try_solve_challenge(challenge_id: str, solved_challenges: list[str], total_cost_in_cents: float) -> bool:
         if challenge_id in solved_challenges:
             return True
         debug(challenge_id)
@@ -167,6 +173,7 @@ async def main() -> None:
             key=key,
             challenge_primitive_lpn_scores=challenge_primitive_lpn_scores,
             challenge_primitive_accuracy_scores=challenge_primitive_accuracy_scores,
+            aggregate_cost_in_cents=total_cost_in_cents,
         )
 
         if len(challenge.test) != len(solutions[0]):
@@ -198,7 +205,7 @@ async def main() -> None:
         for j in range(0, len(eval_ids_to_test), batch_size):
             batch_eval_ids_to_test = eval_ids_to_test[j:j+batch_size]
             tasks = [
-                try_solve_challenge(challenge_id, solved_challenges) 
+                try_solve_challenge(challenge_id, solved_challenges, total_cost_in_cents) 
                 for challenge_id in batch_eval_ids_to_test
             ]
 
@@ -218,9 +225,14 @@ async def main() -> None:
         print("Saving library...")
         save_library(library, f"saved_library_eval_round_{i}.pkl")
 
+        logfire.debug(f"After {i+1} rounds, Total cost in cents: {total_cost_in_cents}")
+        print(f"After {i+1} rounds, Total cost in cents: {total_cost_in_cents}")
+
 
     print(f"FINAL: Solved Challenges: {solved_challenges}")
     print(f"FINAL: Correct Percent: {len(solved_challenges) / len(eval_ids_to_test)}")
+
+    print(f"FINAL: Total cost in cents: {total_cost_in_cents}")
 
 
 if __name__ == "__main__":
