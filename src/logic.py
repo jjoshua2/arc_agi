@@ -1148,7 +1148,7 @@ async def solve_challenge(
     key: chex.PRNGKey = None,
     challenge_primitive_lpn_scores: dict[str, dict[str, float]] = None,
     challenge_primitive_accuracy_scores: dict[str, dict[str, tuple[float, float]]] = None,
-    aggregate_cost_in_cents: float = 0.0,
+    aggregate_cost_in_cents: list[float] = [ 0.0 ],
 ) -> tuple[list[GRID], list[GRID]]:
     if url:
         env_vars = {
@@ -1200,11 +1200,11 @@ async def solve_challenge(
 
     # get the number and cost from all of these attempts
     total_cost_cents = sum(a.cost_cents for a in attempts)
-    aggregate_cost_in_cents += total_cost_cents
+    aggregate_cost_in_cents[0] += total_cost_cents
     logfire.debug(
-        f"[{challenge.id}] DONE: n attempts: {len(attempts)}, total cost cents: {total_cost_cents}, aggregate cost in cents: {aggregate_cost_in_cents}"
+        f"[{challenge.id}] DONE: n attempts: {len(attempts)}, total cost cents: {total_cost_cents}, aggregate cost in cents: {aggregate_cost_in_cents[0]}"
     )
-    print(f"[{challenge.id}] DONE: n attempts: {len(attempts)}, total cost cents: {total_cost_cents}, aggregate cost in cents: {aggregate_cost_in_cents}")
+    print(f"[{challenge.id}] DONE: n attempts: {len(attempts)}, total cost cents: {total_cost_cents}, aggregate cost in cents: {aggregate_cost_in_cents[0]}")
 
 
     ended_at_ms = time.time() * 1000

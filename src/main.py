@@ -100,7 +100,7 @@ async def main() -> None:
 
     num_correct: int = 0
     num_tested: int = 0
-    total_cost_in_cents: int = 0.0
+    total_cost_in_cents: list[float] = [ 0.0 ]
 
     if args.version1:
         eval_ids_to_test = list(eval_challenges.keys())
@@ -156,8 +156,10 @@ async def main() -> None:
     challenge_primitive_accuracy_scores = defaultdict(dict)
     #print(f"challenge_primitive_accuracy_scores length: {len(challenge_primitive_accuracy_scores)}")
 
-    async def try_solve_challenge(challenge_id: str, solved_challenges: list[str], total_cost_in_cents: float) -> bool:
+    async def try_solve_challenge(challenge_id: str, solved_challenges: set[str], total_cost_in_cents: float) -> bool:
         if challenge_id in solved_challenges:
+            print(f"Challenge {challenge_id} already solved")
+            logfire.debug(f"Challenge {challenge_id} already solved")
             return True
         debug(challenge_id)
         print(f"value length: {len(challenge_primitive_accuracy_scores[challenge_id])}")
@@ -213,8 +215,14 @@ async def main() -> None:
             results = await asyncio.gather(*tasks, return_exceptions=True)
             
             for solved, challenge_id in zip(results, batch_eval_ids_to_test):
-                if solved:
+                if isinstance(solved, Exception):
+                    print(f"Error solving challenge {challenge_id}: {solved}")
+                    logfire.error(f"Error solving challenge {challenge_id}: {solved}")
+                elif solved:
                     solved_challenges.add(challenge_id)
+                else:
+                    print(f"Challenge {challenge_id} not solved")
+                    logfire.debug(f"Challenge {challenge_id} not solved")
             print(f"Round {i+1} challenge {j+batch_size}, Correct SO FAR: {len(solved_challenges)} solved. {solved_challenges}")
             logfire.debug(f"Round {i+1} challenge {j+batch_size}, Correct SO FAR: {len(solved_challenges)} solved. {solved_challenges}")
 
@@ -225,14 +233,14 @@ async def main() -> None:
         print("Saving library...")
         save_library(library, f"saved_library_eval_round_{i}.pkl")
 
-        logfire.debug(f"After {i+1} rounds, Total cost in cents: {total_cost_in_cents}")
-        print(f"After {i+1} rounds, Total cost in cents: {total_cost_in_cents}")
+        logfire.debug(f"After {i+1} rounds, Total cost in cents: {total_cost_in_cents[0]}")
+        print(f"After {i+1} rounds, Total cost in cents: {total_cost_in_cents[0]}")
 
 
     print(f"FINAL: Solved Challenges: {solved_challenges}")
     print(f"FINAL: Correct Percent: {len(solved_challenges) / len(eval_ids_to_test)}")
 
-    print(f"FINAL: Total cost in cents: {total_cost_in_cents}")
+    print(f"FINAL: Total cost in cents: {total_cost_in_cents[0]}")
 
 
 if __name__ == "__main__":
