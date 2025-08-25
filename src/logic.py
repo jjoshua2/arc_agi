@@ -1243,6 +1243,82 @@ async def solve_challenge(
     )
 
 
+async def solve_challenge_with_accuracy(
+    tree: list[RootAttemptConfig], 
+    challenge: Challenge, 
+    library: Library = None, 
+    url: str = None, 
+    use_primitives_weighed_by_score: bool = False,
+    lpn_model: LPN = None,
+    evaluator: Evaluator = None,
+    key: chex.PRNGKey = None,
+    challenge_primitive_lpn_scores: dict[str, dict[str, float]] = None,
+    challenge_primitive_accuracy_scores: dict[str, dict[str, tuple[float, float]]] = None,
+    aggregate_cost_in_cents: list[float] = [ 0.0 ],
+) -> tuple[tuple[list[GRID], float], tuple[list[GRID], float]]:
+    run_id = f"run_{random_string(10)}"
+    started_at_ms = time.time() * 1000
+
+    attempts = await run_tree(
+        tree=tree, 
+        challenge=challenge, 
+        library=library, 
+        warm_cache_root=True, 
+        warm_cache_fix=False, 
+        use_primitives_weighed_by_score=use_primitives_weighed_by_score,
+        lpn_model=lpn_model,
+        evaluator=evaluator,
+        key=key,
+        challenge_primitive_lpn_scores=challenge_primitive_lpn_scores,
+        challenge_primitive_accuracy_scores=challenge_primitive_accuracy_scores,
+    )
+    attempts = dedup_attempts(attempts)
+
+    # get the number and cost from all of these attempts
+    total_cost_cents = sum(a.cost_cents for a in attempts)
+    aggregate_cost_in_cents[0] += total_cost_cents
+    logfire.debug(
+        f"[{challenge.id}] DONE: n attempts: {len(attempts)}, total cost cents: {total_cost_cents}, aggregate cost in cents: {aggregate_cost_in_cents[0]}"
+    )
+    print(f"[{challenge.id}] DONE: n attempts: {len(attempts)}, total cost cents: {total_cost_cents}, aggregate cost in cents: {aggregate_cost_in_cents[0]}")
+
+
+    ended_at_ms = time.time() * 1000
+
+    if os.environ.get("NEON_DB_DSN"):
+        await Attempt.insert_run(
+            run_id=run_id, started_at_ms=started_at_ms, ended_at_ms=ended_at_ms
+        )
+        await Attempt.insert_many(attempts=attempts, run_id=run_id)
+
+    top_two = get_best_attempts(
+        attempts=attempts, k_top=2, unique_code=True, unique_output=True
+    )
+    
+    if len(top_two) == 0:
+        # TODO: LLM call failed. Return empty solutions
+        return tuple([], 0.0), tuple([], 0.0)
+
+    if len(top_two) == 1:
+        top_two.append(top_two[0])
+
+    # TODO: only add primitive if top one scores better than best primitive on this task
+    if library and top_two:
+        current_primitive_count = len(library.primitives)
+        library.add_primitive(Primitive(id=f"{current_primitive_count}", python_code_str=top_two[0].python_code_str))
+
+    first_solution = top_two[0]
+    second_solution = top_two[1]
+
+    if PLOT:
+        first_solution.plot(ignore_fixing=True)
+        second_solution.plot(ignore_fixing=True)
+
+    return tuple(get_grids_from_attempt(first_solution), first_solution.train_accuracy), tuple(get_grids_from_attempt(
+        second_solution
+    ), second_solution.train_accuracy)
+
+
 async def solve_challenge_server(
     tree: list[RootAttemptConfig],
     challenge: Challenge,

@@ -17,7 +17,7 @@ from devtools import debug
 from pathlib import Path
 
 from src.data import eval_challenges, training_challenges, v2_training_challenges, v2_eval_challenges, build_challenges_v2, build_challenges
-from src.logic import solve_challenge
+from src.logic import solve_challenge_with_accuracy
 from src.models import GRID
 from src import logfire
 from lpn.src.models.transformer import EncoderTransformer, DecoderTransformer
@@ -26,6 +26,11 @@ from lpn.src.evaluator import Evaluator
 
 from pydantic import BaseModel, TypeAdapter
 
+class ChallengeSolutionWithAccuracy(BaseModel):
+    attempt_1: list[GRID]
+    attempt_2: list[GRID]
+    accuracy_1: float
+    accuracy_2: float
 
 class ChallengeSolution(BaseModel):
     attempt_1: GRID
@@ -174,6 +179,7 @@ async def main() -> None:
     #challenge_primitive_accuracy_scores = load_challenge_primitive_accuracy_scores()
     challenge_primitive_accuracy_scores = defaultdict(dict)
     #print(f"challenge_primitive_accuracy_scores length: {len(challenge_primitive_accuracy_scores)}")
+    intermediate_solutions_d: dict[str, ChallengeSolutionWithAccuracy] = {}
     solutions_d: dict[str, list[ChallengeSolution]] = {}
 
     async def try_solve_challenge(challenge_id: str, solved_challenges: set[str], total_cost_in_cents: float) -> bool:
@@ -185,7 +191,7 @@ async def main() -> None:
         print(f"value length: {len(challenge_primitive_accuracy_scores[challenge_id])}")
         challenge = challenges[challenge_id]
 
-        solutions = await solve_challenge(
+        first_solutions_and_accuracy, second_solutions_and_accuracy = await solve_challenge_with_accuracy(
             challenge=challenge,
             tree=grok_dreamcoder_tree,
             library=library,
@@ -198,18 +204,38 @@ async def main() -> None:
             aggregate_cost_in_cents=total_cost_in_cents,
         )
 
-        first_solutions, second_solutions = solutions
+        first_solutions, first_accuracy = first_solutions_and_accuracy
+        second_solutions, second_accuracy = second_solutions_and_accuracy
+
+        if challenge.id not in intermediate_solutions_d:
+            intermediate_solutions_d[challenge.id] = ChallengeSolutionWithAccuracy(
+                attempt_1=first_solutions,
+                attempt_2=second_solutions,
+                accuracy_1=first_accuracy,
+                accuracy_2=second_accuracy,
+            )
+        else:
+            old_solutions = intermediate_solutions_d[challenge.id]
+            lst = [ [first_accuracy, first_solutions], 
+                   [second_accuracy, second_solutions], 
+                   [old_solutions.accuracy_1, old_solutions.attempt_1], 
+                   [old_solutions.accuracy_2, old_solutions.attempt_2] ]
+            lst.sort(key=lambda x: x[0], reverse=True)
+            intermediate_solutions_d[challenge.id] = ChallengeSolutionWithAccuracy(
+                attempt_1=lst[0][1],
+                attempt_2=lst[1][1],
+                accuracy_1=lst[0][0],
+                accuracy_2=lst[1][0],
+            )
 
         solutions_d[challenge.id] = []
-
         for i in range(len(first_solutions)):
             solutions_d[challenge.id].append(
                 ChallengeSolution(
-                    attempt_1=first_solutions[i],
-                    attempt_2=second_solutions[i],
+                    attempt_1=intermediate_solutions_d[challenge.id].attempt_1[i],
+                    attempt_2=intermediate_solutions_d[challenge.id].attempt_2[i],
                 )
             )
-
         return False
 
     for i in range(2):
