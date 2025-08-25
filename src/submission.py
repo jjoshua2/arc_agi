@@ -251,6 +251,22 @@ async def main() -> None:
 
     print(f"FINAL: Total cost in cents: {total_cost_in_cents[0]}")
 
+
+    # finally, check if there are solutions to all challenges
+    for challenge_id in eval_ids_to_test:
+        if challenge_id not in solutions_d:
+            print(f"Challenge {challenge_id} does not have a solution")
+            logfire.debug(f"Challenge {challenge_id} does not have a solution")
+            challenge = challenges[challenge_id]
+            solutions_d[challenge_id] = []
+            for _ in range(len(challenge.test)):
+                solutions_d[challenge_id].append(
+                    ChallengeSolution(
+                        attempt_1=[[0]],
+                        attempt_2=[[0]],
+                    )
+                )
+
     solutions_path = "submission.json"
     print(f"Saving solutions to {solutions_path}")
     open(solutions_path, "w").write(
