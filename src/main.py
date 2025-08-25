@@ -14,7 +14,9 @@ from collections import defaultdict
 
 from devtools import debug
 
-from src.data import eval_challenges, training_challenges, v2_training_challenges, v2_eval_challenges
+from pathlib import Path
+
+from src.data import eval_challenges, training_challenges, v2_training_challenges, v2_eval_challenges, build_challenges_v2
 from src.logic import solve_challenge
 from src import logfire
 from lpn.src.models.transformer import EncoderTransformer, DecoderTransformer
@@ -91,6 +93,7 @@ async def main() -> None:
     parser.add_argument("-e", "--eval", action="store_true", help="Use saved library")
     parser.add_argument("-l", "--lpn", type=str, help="Use LPN model")
     parser.add_argument("-v1", "--version1", action="store_true", help="Test on ARC-AGI-1 public eval set")
+    parser.add_argument("-p", "--path", type=str, help="Input dataset file path")
     args = parser.parse_args()
 
     if args.lpn:
@@ -103,9 +106,18 @@ async def main() -> None:
     total_cost_in_cents: list[float] = [ 0.0 ]
 
     if args.version1:
-        eval_ids_to_test = list(eval_challenges.keys())
+        challenges = eval_challenges
+    elif args.path:
+        # this assumes args.path is a directory with json files in the format of the ARC-AGI-2 public eval set
+        # i.e. it should have the same format as https://github.com/arcprize/ARC-AGI-2/tree/main/data/evaluation
+        print(f"Building challenges from {args.path}")
+        challenges = build_challenges_v2(
+            challenges_path=Path(args.path),
+        )
     else:
-        eval_ids_to_test = list(v2_eval_challenges.keys())
+        challenges = v2_eval_challenges
+
+    eval_ids_to_test = list(challenges.keys())
     
     print(f"eval set size: {len(eval_ids_to_test)}")
     logfire.debug(f"eval set size: {len(eval_ids_to_test)}")
@@ -163,7 +175,7 @@ async def main() -> None:
             return True
         debug(challenge_id)
         print(f"value length: {len(challenge_primitive_accuracy_scores[challenge_id])}")
-        challenge = v2_eval_challenges[challenge_id]
+        challenge = challenges[challenge_id]
 
         solutions = await solve_challenge(
             challenge=challenge,
