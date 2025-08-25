@@ -1,6 +1,6 @@
 You can follow this kaggle notebook (https://www.kaggle.com/code/happy1scientist/notebooke7aca9a4f8/notebook) on how to run the code.
 
-If you want to test a different set of ARC tasks, check out how build_challenges_v2 and v2_eval_challenges load the ARC-AGI-2 public eval tasks in src/data.py. After you make the changes to load the new set, replace all references to v2_eval_challenges with the new set in src/main.py.
+If you want to test a different set of ARC tasks, please upload them as input in the notebook, and then replace the filepath /kaggle/input/arc-agi-2-public-eval/evaluation with the new filepath.
 
 =====================================================================================================
 
