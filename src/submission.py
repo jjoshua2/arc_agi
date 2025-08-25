@@ -119,6 +119,7 @@ async def main() -> None:
         print(f"Building challenges from {args.path}")
         challenges = build_challenges(
             challenges_path=Path(args.path),
+            solutions_path=None,
         )
     else:
         challenges = v2_eval_challenges
