@@ -229,7 +229,7 @@ async def main() -> None:
             for solved, challenge_id in zip(results, batch_eval_ids_to_test):
                 if isinstance(solved, Exception):
                     print(f"Error solving challenge {challenge_id}: {solved}")
-                    logfire.error(f"Error solving challenge {challenge_id}: {solved}")
+                    logfire.debug(f"Error solving challenge {challenge_id}: {solved}")
                 elif solved:
                     solved_challenges.add(challenge_id)
                 else:
