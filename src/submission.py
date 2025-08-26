@@ -191,7 +191,7 @@ async def main() -> None:
         print(f"value length: {len(challenge_primitive_accuracy_scores[challenge_id])}")
         challenge = challenges[challenge_id]
 
-        first_solutions_and_accuracy, second_solutions_and_accuracy = await solve_challenge_with_accuracy(
+        solutions_and_accuracies = await solve_challenge_with_accuracy(
             challenge=challenge,
             tree=grok_dreamcoder_tree,
             library=library,
@@ -204,22 +204,62 @@ async def main() -> None:
             aggregate_cost_in_cents=total_cost_in_cents,
         )
 
+        logfire.debug(f"[{challenge.id}] solutions_and_accuracies: {solutions_and_accuracies}")
+        print(f"[{challenge.id}] solutions_and_accuracies: {solutions_and_accuracies}")
+
+        first_solutions_and_accuracy, second_solutions_and_accuracy = solutions_and_accuracies[0], solutions_and_accuracies[1]
+
+        logfire.debug(f"[{challenge.id}] tuple 1: {first_solutions_and_accuracy}, tuple 2: {second_solutions_and_accuracy}")
+        print(f"[{challenge.id}] tuple 1: {first_solutions_and_accuracy}, tuple 2: {second_solutions_and_accuracy}")
+
         first_solutions, first_accuracy = first_solutions_and_accuracy
         second_solutions, second_accuracy = second_solutions_and_accuracy
 
+        logfire.debug(f"[{challenge.id}] first_solutions: {first_solutions}, first_accuracy: {first_accuracy}")
+        logfire.debug(f"[{challenge.id}] second_solutions: {second_solutions}, second_accuracy: {second_accuracy}")
+        print(f"[{challenge.id}] first_solutions: {first_solutions}, first_accuracy: {first_accuracy}")
+        print(f"[{challenge.id}] second_solutions: {second_solutions}, second_accuracy: {second_accuracy}")
+
+        first_solution_correct_length, second_solution_correct_length = True, True
+        if len(challenge.test) != len(first_solutions):
+            print(f"[{challenge.id}] first_solutions have len {len(first_solutions)} but challenge.test has len {len(challenge.test)}")
+            first_solution_correct_length = False
+        if len(challenge.test) != len(second_solutions):
+            print(f"[{challenge.id}] second_solutions have len {len(second_solutions)} but challenge.test has len {len(challenge.test)}")
+            second_solution_correct_length = False
+
         if challenge.id not in intermediate_solutions_d:
-            intermediate_solutions_d[challenge.id] = ChallengeSolutionWithAccuracy(
-                attempt_1=first_solutions,
-                attempt_2=second_solutions,
-                accuracy_1=first_accuracy,
-                accuracy_2=second_accuracy,
-            )
+            if first_solution_correct_length and second_solution_correct_length:
+                intermediate_solutions_d[challenge.id] = ChallengeSolutionWithAccuracy(
+                    attempt_1=first_solutions,
+                    attempt_2=second_solutions,
+                    accuracy_1=first_accuracy,
+                    accuracy_2=second_accuracy,
+                )
+            elif first_solution_correct_length:
+                intermediate_solutions_d[challenge.id] = ChallengeSolutionWithAccuracy(
+                    attempt_1=first_solutions,
+                    attempt_2=first_solutions,
+                    accuracy_1=first_accuracy,
+                    accuracy_2=first_accuracy,
+                )
+            elif second_solution_correct_length:
+                intermediate_solutions_d[challenge.id] = ChallengeSolutionWithAccuracy(
+                    attempt_1=second_solutions,
+                    attempt_2=second_solutions,
+                    accuracy_1=second_accuracy,
+                    accuracy_2=second_accuracy,
+                )
+            else:
+                raise ValueError(f"[{challenge.id}] first_solution_correct_length: {first_solution_correct_length}, second_solution_correct_length: {second_solution_correct_length}. Challenge test length: {len(challenge.test)}")
         else:
             old_solutions = intermediate_solutions_d[challenge.id]
-            lst = [ [first_accuracy, first_solutions], 
-                   [second_accuracy, second_solutions], 
-                   [old_solutions.accuracy_1, old_solutions.attempt_1], 
+            lst = [ [old_solutions.accuracy_1, old_solutions.attempt_1], 
                    [old_solutions.accuracy_2, old_solutions.attempt_2] ]
+            if first_solution_correct_length:
+                lst.append([first_accuracy, first_solutions])
+            if second_solution_correct_length:
+                lst.append([second_accuracy, second_solutions])
             lst.sort(key=lambda x: x[0], reverse=True)
             intermediate_solutions_d[challenge.id] = ChallengeSolutionWithAccuracy(
                 attempt_1=lst[0][1],
@@ -229,14 +269,18 @@ async def main() -> None:
             )
 
         solutions_d[challenge.id] = []
-        for i in range(len(first_solutions)):
+        for i in range(len(challenge.test)):
             solutions_d[challenge.id].append(
                 ChallengeSolution(
                     attempt_1=intermediate_solutions_d[challenge.id].attempt_1[i],
                     attempt_2=intermediate_solutions_d[challenge.id].attempt_2[i],
                 )
             )
-        return False
+
+        if first_accuracy == 1.0 and second_accuracy == 1.0:
+            return True
+        else:
+            return False
 
     for i in range(2):
         batch_size = 60

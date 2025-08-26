@@ -1255,7 +1255,7 @@ async def solve_challenge_with_accuracy(
     challenge_primitive_lpn_scores: dict[str, dict[str, float]] = None,
     challenge_primitive_accuracy_scores: dict[str, dict[str, tuple[float, float]]] = None,
     aggregate_cost_in_cents: list[float] = [ 0.0 ],
-) -> tuple[tuple[list[GRID], float], tuple[list[GRID], float]]:
+) -> list[tuple[list[GRID], float]]:
     run_id = f"run_{random_string(10)}"
     started_at_ms = time.time() * 1000
 
@@ -1297,7 +1297,7 @@ async def solve_challenge_with_accuracy(
     
     if len(top_two) == 0:
         # TODO: LLM call failed. Return empty solutions
-        return tuple([], 0.0), tuple([], 0.0)
+        return [ ([], 0.0), ([], 0.0) ]
 
     if len(top_two) == 1:
         top_two.append(top_two[0])
@@ -1314,9 +1314,9 @@ async def solve_challenge_with_accuracy(
         first_solution.plot(ignore_fixing=True)
         second_solution.plot(ignore_fixing=True)
 
-    return tuple(get_grids_from_attempt(first_solution), first_solution.train_accuracy), tuple(get_grids_from_attempt(
+    return [ ( get_grids_from_attempt(first_solution), first_solution.train_accuracy), (get_grids_from_attempt(
         second_solution
-    ), second_solution.train_accuracy)
+    ), second_solution.train_accuracy) ]
 
 
 async def solve_challenge_server(
