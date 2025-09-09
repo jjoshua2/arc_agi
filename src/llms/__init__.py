@@ -467,6 +467,7 @@ async def get_next_messages(
     elif model in [
         Model.gpt_4o,
         Model.gpt_4o_mini,
+        Model.gpt_5,
         Model.o1_mini,
         Model.o1_preview,
         Model.o3_mini,

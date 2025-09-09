@@ -36,6 +36,7 @@ class Model(str, Enum):
     claude_3_5_haiku = "claude-3-5-haiku-20241022"
     gpt_4o = "gpt-4o"
     gpt_4o_mini = "gpt-4o-mini"
+    gpt_5 = "gpt-5"
     o1_mini = "o1-mini"
     o3_mini = "o3-mini"
     o1_preview = "o1-preview"
@@ -79,6 +80,12 @@ model_price_map: dict[Model, ModelPrice] = {
         cache_create_per_million_cents=250,
         cache_read_per_million_cents=125,
         input_tokens_per_million_cents=250,
+        output_tokens_per_million_cents=1_000,
+    ),
+     Model.gpt_5: ModelPrice(
+        cache_create_per_million_cents=250,
+        cache_read_per_million_cents=12.5,
+        input_tokens_per_million_cents=125,
         output_tokens_per_million_cents=1_000,
     ),
     Model.gpt_4o_mini: ModelPrice(
