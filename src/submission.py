@@ -36,7 +36,7 @@ class ChallengeSolution(BaseModel):
     attempt_1: GRID
     attempt_2: GRID
 
-def load_lpn_model(artifact_path: str = "ericpangct-s2/ARC/copper-smoke-37--checkpoint:v8") -> tuple[LPN, Evaluator]:
+def load_lpn_model(artifact_path: str) -> tuple[LPN, Evaluator]:
     run = wandb.init()
     artifact = run.use_artifact(artifact_path, type='model')
     run.finish()
@@ -110,7 +110,8 @@ async def main() -> None:
     args = parser.parse_args()
 
     if args.lpn:
-        lpn_model, evaluator, key = load_lpn_model()
+        artifact_path = os.getenv("LPN_ARTIFACT_PATH")
+        lpn_model, evaluator, key = load_lpn_model(artifact_path)
     else:
         lpn_model, evaluator, key = None, None, None
 
