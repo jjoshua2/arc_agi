@@ -1,5 +1,6 @@
-Setup
+# Setup
 
+This writeup is better formatted in https://ctpang.substack.com/p/arc-agi-2-sota-efficient-evolutionary.
 
 In a world of impressive AI results (IMO Gold; 88.1% on Graduate-level STEM questions; 74.9% on Software Engineering tasks), one benchmark is still unsaturated. Abstract and Reasoning Corpus for Artificial General Intelligence (ARC-AGI), which was originally introduced by François Chollet in On the Measure of Intelligence, remains a challenge that humans perform well on while machines struggle. On ARC-AGI-2, the second generation competition with a $1 million in prizes, no frontier models score above 16%.
 
