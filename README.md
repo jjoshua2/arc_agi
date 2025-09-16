@@ -4,7 +4,8 @@
 2. Set up `.env` with your credentials (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `LOGFIRE_TOKEN` and `XAI_API_KEY`). You don't need to set up all of them, just the ones you need.
 4. Create a virtual environment with Python version 3.11 e.g. `python3.11 -m venv venv`
 5. Activate the virtual environment `source venv/bin/activate`
-6. Check out src/submission.py and the parameters it accepts. For example, `python -m src.submission -v1` generates a submission file for the model's attempts on ARC-AGI-1 public eval set.
+6. Install the dependencies `pip install -U -r requirements_py311.txt`
+7. Check out `src/submission.py` and the parameters it accepts. For example, `python -m src.submission -v1` generates a submission file for the model's attempts on ARC-AGI-1 public eval set.
 
 Here's a writeup of my approach. You can read it in https://ctpang.substack.com/p/arc-agi-2-sota-efficient-evolutionary.
 
