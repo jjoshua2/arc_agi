@@ -16,8 +16,16 @@ from devtools import debug
 
 from pathlib import Path
 
+# Load environment variables from .env if available
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
+
 from src.data import eval_challenges, training_challenges, v2_training_challenges, v2_eval_challenges, build_challenges_v2
 from src.logic import solve_challenge
+from src.run_python import run_python_transform_sync
 from src import logfire
 from lpn.src.models.transformer import EncoderTransformer, DecoderTransformer
 from lpn.src.models.lpn import LPN
@@ -94,7 +102,12 @@ async def main() -> None:
     parser.add_argument("-l", "--lpn", type=str, help="Use LPN model")
     parser.add_argument("-v1", "--version1", action="store_true", help="Test on ARC-AGI-1 public eval set")
     parser.add_argument("-p", "--path", type=str, help="Input dataset file path")
+    parser.add_argument("--precheck-only", action="store_true", help="Only run library precheck; no LLM calls (requires -e)")
     args = parser.parse_args()
+
+    if args.precheck_only and not args.eval:
+        print("Error: --precheck-only requires -e/--eval (resume from a saved library).")
+        return
 
     if args.lpn:
         artifact_path = os.getenv("LPN_ARTIFACT_PATH")
@@ -119,7 +132,24 @@ async def main() -> None:
         challenges = v2_eval_challenges
 
     eval_ids_to_test = list(challenges.keys())
-    
+
+    # Optional: slice tasks via env (supports START+COUNT)
+    start_env = os.environ.get("SUBMISSION_TASKS_START")
+    count_env = os.environ.get("SUBMISSION_TASKS_COUNT")
+    try:
+        start_i = max(0, int(start_env)) if start_env is not None else 0
+    except Exception:
+        start_i = 0
+    try:
+        count_i = max(0, int(count_env)) if count_env is not None else None
+    except Exception:
+        count_i = None
+    if start_i or count_i is not None:
+        end_i = start_i + count_i if count_i is not None else None
+        eval_ids_to_test = eval_ids_to_test[start_i:end_i]
+        print(f"Applying task slice: start={start_i}, count={count_i if count_i is not None else 'ALL'}")
+        logfire.debug(f"Applying task slice: start={start_i}, count={count_i}")
+
     print(f"eval set size: {len(eval_ids_to_test)}")
     logfire.debug(f"eval set size: {len(eval_ids_to_test)}")
     debug(eval_ids_to_test)
@@ -149,11 +179,20 @@ async def main() -> None:
         else:
             return defaultdict(dict)
 
+    def save_challenge_primitive_accuracy_scores(d, filename="challenge_primitive_accuracy_scores.pkl"):
+        try:
+            with open(filename, "wb") as f:
+                pickle.dump(d, f)
+            print(f"Saved challenge_primitive_accuracy_scores to {filename}")
+        except Exception as e:
+            print(f"WARNING: failed to save challenge_primitive_accuracy_scores: {e}")
+
     # Only use library if -e flag is provided
     library = None
     if args.eval:
         # library of primitives that have been obtained from arc-agi 2 train set (1000 challenges)
-        library_path = "saved_library_1000.pkl"
+        library_path = os.environ.get("SUBMISSION_LIBRARY_PATH", "saved_library_1000.pkl")
+        print(f"Loading library from {library_path}")
         library = load_library(library_path)
     else:
         library = Library(primitives=[])
@@ -165,8 +204,7 @@ async def main() -> None:
     # Dictionary to store primitive lpn scores for each challenge (scores don't change across runs)
     challenge_primitive_lpn_scores = defaultdict(dict)
     # Dictionary to store primitive naive accuracy scores (how many squares it gets correct)
-    #challenge_primitive_accuracy_scores = load_challenge_primitive_accuracy_scores()
-    challenge_primitive_accuracy_scores = defaultdict(dict)
+    challenge_primitive_accuracy_scores = load_challenge_primitive_accuracy_scores()
     #print(f"challenge_primitive_accuracy_scores length: {len(challenge_primitive_accuracy_scores)}")
 
     async def try_solve_challenge(challenge_id: str, solved_challenges: set[str], total_cost_in_cents: float) -> bool:
@@ -178,18 +216,60 @@ async def main() -> None:
         print(f"value length: {len(challenge_primitive_accuracy_scores[challenge_id])}")
         challenge = challenges[challenge_id]
 
-        solutions = await solve_challenge(
-            challenge=challenge,
-            tree=grok_dreamcoder_tree,
-            library=library,
-            use_primitives_weighed_by_score=not lpn_model,
-            lpn_model=lpn_model,
-            evaluator=evaluator,
-            key=key,
-            challenge_primitive_lpn_scores=challenge_primitive_lpn_scores,
-            challenge_primitive_accuracy_scores=challenge_primitive_accuracy_scores,
-            aggregate_cost_in_cents=total_cost_in_cents,
-        )
+        # Library-only precheck: if -e (eval) and LIBRARY_PRECHECK != '0', try to solve using existing primitives without any LLM calls.
+        solutions = None
+        if args.eval and os.environ.get("LIBRARY_PRECHECK", "1") != "0" and library and library.primitives:
+            try:
+                for primitive in library.primitives:
+                    tr = run_python_transform_sync(
+                        code=primitive.python_code_str,
+                        grid_lists=[train.input for train in challenge.train],
+                        timeout=5,
+                        raise_exception=False,
+                    )
+                    if tr and tr.transform_results and len(tr.transform_results) == len(challenge.train):
+                        train_ok = True
+                        for idx, train in enumerate(challenge.train):
+                            if tr.transform_results[idx] != train.output:
+                                train_ok = False
+                                break
+                        if train_ok:
+                            test_predictions: list = []
+                            for test in challenge.test:
+                                tr_test = run_python_transform_sync(
+                                    code=primitive.python_code_str,
+                                    grid_lists=[test.input],
+                                    timeout=5,
+                                    raise_exception=False,
+                                )
+                                if tr_test and tr_test.transform_results:
+                                    test_predictions.append(tr_test.transform_results[0])
+                                else:
+                                    test_predictions.append([[0]])
+                            solutions = [test_predictions, test_predictions]
+                            print(f"[{challenge.id}] solved via library precheck using primitive {primitive.id}")
+                            logfire.debug(f"[{challenge.id}] solved via library precheck using primitive {primitive.id}")
+                            break
+            except Exception as e:
+                logfire.debug(f"[{challenge.id}] library precheck error: {e}")
+
+        if solutions is None:
+            if args.precheck_only:
+                print(f"[{challenge.id}] precheck-only: no library match; skipping LLM and marking unsolved")
+                logfire.debug(f"[{challenge.id}] precheck-only: no library match; skipping LLM and marking unsolved")
+                return False
+            solutions = await solve_challenge(
+                challenge=challenge,
+                tree=grok_dreamcoder_tree,
+                library=library,
+                use_primitives_weighed_by_score=not lpn_model,
+                lpn_model=lpn_model,
+                evaluator=evaluator,
+                key=key,
+                challenge_primitive_lpn_scores=challenge_primitive_lpn_scores,
+                challenge_primitive_accuracy_scores=challenge_primitive_accuracy_scores,
+                aggregate_cost_in_cents=total_cost_in_cents,
+            )
 
         if len(challenge.test) != len(solutions[0]):
             solution_one_correct = False
@@ -215,29 +295,73 @@ async def main() -> None:
 
         return is_correct_final
 
-    for i in range(2):
-        batch_size = 60
-        for j in range(0, len(eval_ids_to_test), batch_size):
-            batch_eval_ids_to_test = eval_ids_to_test[j:j+batch_size]
-            tasks = [
-                try_solve_challenge(challenge_id, solved_challenges, total_cost_in_cents) 
-                for challenge_id in batch_eval_ids_to_test
-            ]
+    # Optional: override attempts per task
+    attempts_env = os.environ.get("SUBMISSION_ATTEMPTS")
+    if attempts_env:
+        try:
+            attempts_override = max(1, int(attempts_env))
+            from src.trees.experiments import grok_dreamcoder_tree as _tree_ref
+            for node in _tree_ref:
+                node.attempts = attempts_override
+            print(f"Using SUBMISSION_ATTEMPTS={attempts_override}")
+            logfire.debug(f"Using SUBMISSION_ATTEMPTS={attempts_override}")
+        except Exception as _:
+            print("WARNING: invalid SUBMISSION_ATTEMPTS; ignoring")
+            logfire.debug("WARNING: invalid SUBMISSION_ATTEMPTS; ignoring")
 
-            # Execute all tasks in parallel
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            for solved, challenge_id in zip(results, batch_eval_ids_to_test):
-                if isinstance(solved, Exception):
-                    print(f"Error solving challenge {challenge_id}: {solved}")
-                    logfire.debug(f"Error solving challenge {challenge_id}: {solved}")
-                elif solved:
-                    solved_challenges.add(challenge_id)
-                else:
-                    print(f"Challenge {challenge_id} not solved")
-                    logfire.debug(f"Challenge {challenge_id} not solved")
-            print(f"Round {i+1} challenge {j+batch_size}, Correct SO FAR: {len(solved_challenges)} solved. {solved_challenges}")
-            logfire.debug(f"Round {i+1} challenge {j+batch_size}, Correct SO FAR: {len(solved_challenges)} solved. {solved_challenges}")
+    # Optional: override batch size
+    bs_env = os.environ.get("SUBMISSION_BATCH_SIZE")
+    try:
+        batch_size = max(1, int(bs_env)) if bs_env else 60
+    except Exception:
+        batch_size = 60
+    print(f"Using SUBMISSION_BATCH_SIZE={batch_size}")
+    logfire.debug(f"Using SUBMISSION_BATCH_SIZE={batch_size}")
+
+    # Allow controlling rounds via env var (defaults to 2)
+    rounds_env = os.environ.get("SUBMISSION_ROUNDS", "2")
+    try:
+        total_rounds = max(1, int(rounds_env))
+    except Exception:
+        total_rounds = 2
+    if args.precheck_only:
+        total_rounds = 1
+        print("Precheck-only mode enabled: skipping LLM-backed solving and forcing SUBMISSION_ROUNDS=1")
+        logfire.debug("Precheck-only mode enabled: skipping LLM-backed solving and forcing SUBMISSION_ROUNDS=1")
+    print(f"Using SUBMISSION_ROUNDS={total_rounds}")
+    logfire.debug(f"Using SUBMISSION_ROUNDS={total_rounds}")
+
+    for i in range(total_rounds):
+        # Sliding window concurrency: keep up to batch_size tasks in-flight
+        sem = asyncio.Semaphore(batch_size)
+        processed = 0
+
+        async def bounded_try(challenge_id: str):
+            async with sem:
+                try:
+                    res = await try_solve_challenge(challenge_id, solved_challenges, total_cost_in_cents)
+                    return (challenge_id, res, None)
+                except Exception as e:
+                    return (challenge_id, None, e)
+
+        tasks = [asyncio.create_task(bounded_try(cid)) for cid in eval_ids_to_test]
+
+        for fut in asyncio.as_completed(tasks):
+            challenge_id, solved, err = await fut
+            processed += 1
+            if err is not None:
+                print(f"Error solving challenge {challenge_id}: {err}")
+                logfire.debug(f"Error solving challenge {challenge_id}: {err}")
+            elif solved:
+                solved_challenges.add(challenge_id)
+            else:
+                print(f"Challenge {challenge_id} not solved")
+                logfire.debug(f"Challenge {challenge_id} not solved")
+
+            # Light progress signal without batch head-of-line blocking
+            if processed % max(1, batch_size // 2) == 0 or processed == len(eval_ids_to_test):
+                print(f"Round {i+1} progress: {processed}/{len(eval_ids_to_test)} processed, {len(solved_challenges)} solved so far")
+                logfire.debug(f"Round {i+1} progress: {processed}/{len(eval_ids_to_test)} processed, {len(solved_challenges)} solved so far")
 
         logfire.debug(f"After {i+1} rounds, Solved Challenges: {solved_challenges}")
         print(f"After {i+1} rounds, Solved Challenges: {solved_challenges}")
@@ -254,6 +378,16 @@ async def main() -> None:
     print(f"FINAL: Correct Percent: {len(solved_challenges) / len(eval_ids_to_test)}")
 
     print(f"FINAL: Total cost in cents: {total_cost_in_cents[0]}")
+
+    # Persist primitive accuracy scores for reuse next runs
+    save_challenge_primitive_accuracy_scores(challenge_primitive_accuracy_scores, "challenge_primitive_accuracy_scores.pkl")
+
+    # Persist transform cache (if enabled)
+    try:
+        from src.logic import save_transform_cache
+        save_transform_cache()
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

@@ -7,6 +7,9 @@ import typing as T
 from copy import deepcopy
 from enum import Enum
 import asyncio
+from types import SimpleNamespace
+import pickle
+import hashlib
 
 import httpx
 import numpy as np
@@ -17,6 +20,7 @@ from tqdm.asyncio import tqdm_asyncio
 import jax.numpy as jnp
 import jax
 import chex
+import numpy as onp
 
 from src import PLOT, logfire
 from src.data import training_challenges
@@ -50,6 +54,82 @@ from src.prompts.examples import (
 from src.render_legacy import grid_to_base64_png_oai_content
 from src.reps import array_to_str, grid_diffs_to_ascii, grid_to_ascii
 from src.run_python import run_python_transform_sync
+
+# ---- Transform result cache (opt-in) ----
+_TRANSFORM_CACHE_ENABLED = os.environ.get("SUBMISSION_TRANSFORM_CACHE", "0") == "1"
+_TRANSFORM_CACHE_PATH = os.environ.get("TRANSFORM_CACHE_PATH", "transforms_cache.pkl")
+_TRANSFORM_CACHE_CLEAR = os.environ.get("SUBMISSION_TRANSFORM_CACHE_CLEAR", "0") == "1"
+_transform_cache: dict[str, list] = {}
+
+
+def _hash_obj(obj: T.Any) -> str:
+    try:
+        s = json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    except Exception:
+        s = str(obj)
+    h = hashlib.sha256()
+    h.update(s.encode("utf-8", errors="ignore"))
+    return h.hexdigest()
+
+
+def _transform_cache_key(*, code: str, grid_lists: list) -> str:
+    h = hashlib.sha256()
+    h.update(code.encode("utf-8", errors="ignore"))
+    h.update(b"|")
+    h.update(_hash_obj(grid_lists).encode("utf-8"))
+    return h.hexdigest()
+
+
+def load_transform_cache() -> None:
+    global _transform_cache
+    if not _TRANSFORM_CACHE_ENABLED:
+        return
+    if _TRANSFORM_CACHE_CLEAR:
+        _transform_cache = {}
+        return
+    try:
+        if os.path.exists(_TRANSFORM_CACHE_PATH):
+            with open(_TRANSFORM_CACHE_PATH, "rb") as f:
+                data = pickle.load(f)
+            if isinstance(data, dict):
+                _transform_cache = data
+                logfire.debug(f"TRANSFORM_CACHE: loaded {len(_transform_cache)} entries from {_TRANSFORM_CACHE_PATH}")
+    except Exception as e:
+        logfire.debug(f"TRANSFORM_CACHE: failed to load: {e}")
+        _transform_cache = {}
+
+
+def save_transform_cache() -> None:
+    if not _TRANSFORM_CACHE_ENABLED:
+        return
+    try:
+        with open(_TRANSFORM_CACHE_PATH, "wb") as f:
+            pickle.dump(_transform_cache, f)
+        logfire.debug(f"TRANSFORM_CACHE: saved {len(_transform_cache)} entries to {_TRANSFORM_CACHE_PATH}")
+    except Exception as e:
+        logfire.debug(f"TRANSFORM_CACHE: failed to save: {e}")
+
+
+def run_python_transform_sync_cached(*, code: str, grid_lists: list, timeout: int, raise_exception: bool):
+    if not _TRANSFORM_CACHE_ENABLED:
+        return run_python_transform_sync(code=code, grid_lists=grid_lists, timeout=timeout, raise_exception=raise_exception)
+    key = _transform_cache_key(code=code, grid_lists=grid_lists)
+    if key in _transform_cache:
+        res = _transform_cache[key]
+        return SimpleNamespace(transform_results=res, latency_ms=0.0)
+    out = run_python_transform_sync(code=code, grid_lists=grid_lists, timeout=timeout, raise_exception=raise_exception)
+    try:
+        if out and getattr(out, "transform_results", None):
+            _transform_cache[key] = out.transform_results
+    except Exception:
+        pass
+    return out
+
+# auto-load cache on import if enabled
+try:
+    load_transform_cache()
+except Exception:
+    pass
 from lpn.src.evaluator import Evaluator
 from lpn.src.models.lpn import LPN
 
@@ -359,10 +439,10 @@ def get_best_primitives(
     example_correct: list[Primitive] = []
     secondary_score_lst: list[Primitive] = []
     for primitive in library.primitives:
-        transform_results = run_python_transform_sync(
+        transform_results = run_python_transform_sync_cached(
             code=primitive.python_code_str,
             grid_lists=[deepcopy(train.input) for train in challenge.train],
-            timeout=5,
+            timeout=int(os.environ.get("SUBMISSION_TRANSFORM_TIMEOUT", "5")),
             raise_exception=False, # since we are applying all primitives to all tasks
         )
         if transform_results.transform_results:
@@ -426,6 +506,43 @@ def get_latents_from_lpn(
     return first_context, second_context
 
 
+def _safe_sample_indices(n: int, k_top: int, probabilities: onp.ndarray | list[float], ctx: str = "") -> list[int]:
+    if n <= 0 or k_top <= 0:
+        return []
+    k = min(k_top, n)
+    used_uniform = False
+    try:
+        p = onp.asarray(probabilities, dtype=float).reshape(-1)
+    except Exception:
+        p = None
+    if p is None or p.shape[0] != n or not onp.isfinite(p).all() or p.sum() <= 0:
+        # fallback to uniform
+        p = onp.ones(n, dtype=float) / n
+        used_uniform = True
+    else:
+        p = onp.maximum(p, 0.0)
+        s = p.sum()
+        if s <= 0 or not onp.isfinite(s):
+            p = onp.ones(n, dtype=float) / n
+            used_uniform = True
+        else:
+            p = p / s
+    if used_uniform:
+        try:
+            logfire.debug(f"SAFE_SAMPLE: uniform fallback (ctx={ctx}, n={n}, k={k})")
+        except Exception:
+            pass
+    try:
+        return onp.random.choice(n, size=k, replace=False, p=p).tolist()
+    except Exception as e:
+        try:
+            logfire.debug(f"SAFE_SAMPLE: deterministic fallback due to np.random.choice error (ctx={ctx}, n={n}, k={k}, err={e})")
+        except Exception:
+            pass
+        # Final fallback: deterministic first k indices
+        return list(range(k))
+
+
 def get_best_primitives_by_lpn_vmap(
     library: Library, 
     challenge: Challenge, 
@@ -482,13 +599,9 @@ def get_best_primitives_by_lpn_vmap(
 
     # Sample k_top primitives based on probabilities
     k_top = min(k_top, len(library.primitives))
-    selected_indices = np.random.choice(
-        len(library.primitives), 
-        size=k_top, 
-        replace=False, 
-        p=probabilities
+    selected_indices = _safe_sample_indices(
+        len(library.primitives), k_top, probabilities, ctx=f"lpn_vmap:{challenge.id}"
     )
-    
     return [library.primitives[i] for i in selected_indices]
 
 def process_primitive_batch_parallel(
@@ -507,10 +620,10 @@ def process_primitive_batch_parallel(
     
     for primitive in primitives:
         try:
-            transform_results = run_python_transform_sync(
+            transform_results = run_python_transform_sync_cached(
                 code=primitive.python_code_str,
                 grid_lists=[deepcopy(train.input) for train in challenge.train],
-                timeout=5,
+                timeout=int(os.environ.get("SUBMISSION_TRANSFORM_TIMEOUT", "5")),
                 raise_exception=False,
             )
             if transform_results and transform_results.transform_results:
@@ -632,11 +745,11 @@ async def evaluate_primitive_weighed_async(
             return challenge_primitive_scores[challenge.id][primitive.id]
 
     try:
-        transform_results = run_python_transform_sync(
+        transform_results = run_python_transform_sync_cached(
             code=primitive.python_code_str,
             grid_lists=[deepcopy(train.input) for train in challenge.train],
-            timeout=5,
-            raise_exception=False, # since we are applying all primitives to all tasks
+            timeout=int(os.environ.get("SUBMISSION_TRANSFORM_TIMEOUT", "5")),
+            raise_exception=False,  # since we are applying all primitives to all tasks
         )
         if transform_results.transform_results:
             transformed_grids = transform_results.transform_results
@@ -702,13 +815,9 @@ async def get_best_primitives_weighed_by_score_async(
 
     # Sample k_top primitives based on probabilities
     k_top = min(k_top, len(library.primitives))
-    selected_indices = np.random.choice(
-        len(library.primitives), 
-        size=k_top, 
-        replace=False, 
-        p=probabilities
+    selected_indices = _safe_sample_indices(
+        len(library.primitives), k_top, probabilities, ctx=f"weighed_async:{challenge.id}"
     )
-    
     return [library.primitives[i] for i in selected_indices]
 
 def get_best_primitives_weighed_by_score(
@@ -755,13 +864,9 @@ def get_best_primitives_weighed_by_score(
 
     # Sample k_top primitives based on probabilities
     k_top = min(k_top, len(library.primitives))
-    selected_indices = np.random.choice(
-        len(library.primitives), 
-        size=k_top, 
-        replace=False, 
-        p=probabilities
+    selected_indices = _safe_sample_indices(
+        len(library.primitives), k_top, probabilities, ctx=f"weighed_sync:{challenge.id}"
     )
-    
     return [library.primitives[i] for i in selected_indices]
 
 def get_best_attempts(
@@ -981,26 +1086,36 @@ async def run_tree(
     challenge_primitive_accuracy_scores: dict[str, dict[str, tuple[float, float]]] = None,
 ) -> list[Attempt]:
     assert not(use_primitives_weighed_by_score and lpn_model), "Cannot use both use_primitives_weighed_by_score and lpn_model"
+
+    # Determine how many top primitives to use from the library (configurable via env)
+    top_k_env = os.environ.get("SUBMISSION_PRIMITIVES_TOP_K")
+    try:
+        top_k = max(1, int(top_k_env)) if top_k_env is not None else 2
+    except Exception:
+        top_k = 2
+    print(f"[{challenge.id}] Using top K primitives = {top_k}")
+    logfire.debug(f"[{challenge.id}] Using top K primitives = {top_k}")
+
     # find the best functions in the library for this challenge
     if use_primitives_weighed_by_score:
         primitives = await get_best_primitives_weighed_by_score_async(
-            library=library, 
+            library=library,
             challenge=challenge,
-            k_top=2,
+            k_top=top_k,
             challenge_primitive_scores=challenge_primitive_accuracy_scores,
         )
     elif lpn_model and evaluator:
         primitives = get_best_primitives_by_lpn_vmap(
-            library=library, 
-            challenge=challenge, 
-            k_top=2, 
-            lpn_model=lpn_model, 
+            library=library,
+            challenge=challenge,
+            k_top=top_k,
+            lpn_model=lpn_model,
             evaluator=evaluator,
             key=key,
             challenge_primitive_scores=challenge_primitive_lpn_scores,
         )
     else:
-        primitives = get_best_primitives(library=library, challenge=challenge, k_top=1)
+        primitives = get_best_primitives(library=library, challenge=challenge, k_top=top_k)
     if primitives:
         print(f"[{challenge.id}] Found primitives: {primitives}")
         logfire.debug(f"[{challenge.id}] Found primitives: {primitives}")
@@ -1067,10 +1182,10 @@ def get_grids_from_attempt(attempt: Attempt) -> list[GRID]:
     challenge = attempt.challenge
     if len(challenge.test) == 1:
         return [attempt.test_attempt]
-    transform_results = run_python_transform_sync(
+    transform_results = run_python_transform_sync_cached(
         code=attempt.python_code_str,
         grid_lists=[deepcopy(test.input) for test in challenge.test],
-        timeout=5,
+        timeout=int(os.environ.get("SUBMISSION_TRANSFORM_TIMEOUT", "5")),
         raise_exception=True,
     )
     logfire.debug(

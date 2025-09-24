@@ -1,4 +1,9 @@
 import asyncio
+import os
+import json
+import hashlib
+import time
+from pathlib import Path
 import hashlib
 import json
 import os
@@ -48,12 +53,14 @@ class Model(str, Enum):
     openrouter_claude_3_5_sonnet = "anthropic/claude-3.5-sonnet:beta"
     openrouter_o1 = "openai/o1-preview"
     openrouter_o1_mini = "openai/o1-mini-preview"
+    openrouter_grok_4_fast_free = "x-ai/grok-4-fast:free"
     # gemini_1_5_pro = "gemini-1.5-pro"
     gemini_1_5_pro = "gemini-1.5-pro-002"
     deep_seek_r1 = "deepseek-reasoner"
     baseten_deepseek_r1 = "baseten_deepseek_r1"
     grok_4 = "grok-4-0709"
     grok_3 = "grok-3"
+    grok_4_fast_reasoning = "grok-4-fast-reasoning"
 
 
 class ModelPrice(BaseModel):
@@ -124,6 +131,12 @@ model_price_map: dict[Model, ModelPrice] = {
         input_tokens_per_million_cents=300,
         output_tokens_per_million_cents=1_500,
     ),
+    Model.openrouter_grok_4_fast_free: ModelPrice( #actually free but we keep track using normal costs
+        cache_create_per_million_cents=5,   # cached input $0.05 / 1M tokens
+        cache_read_per_million_cents=5,
+        input_tokens_per_million_cents=20,  # input $0.20 / 1M tokens
+        output_tokens_per_million_cents=50, # output $0.50 / 1M tokens
+    ),
     Model.gemini_1_5_pro: ModelPrice(
         cache_create_per_million_cents=450,
         cache_read_per_million_cents=0.3125,
@@ -159,6 +172,12 @@ model_price_map: dict[Model, ModelPrice] = {
         cache_read_per_million_cents=75,
         input_tokens_per_million_cents=300,
         output_tokens_per_million_cents=1500,
+    ),
+    Model.grok_4_fast_reasoning: ModelPrice(
+        cache_create_per_million_cents=5,   # cached input $0.05 / 1M tokens
+        cache_read_per_million_cents=5,
+        input_tokens_per_million_cents=20,  # input $0.20 / 1M tokens
+        output_tokens_per_million_cents=50, # output $0.50 / 1M tokens
     ),
 }
 
@@ -461,6 +480,70 @@ class Attempt(BaseModel):
 
         return result_grids_list
 
+    @staticmethod
+    def _prompt_hash(messages: list[dict[str, T.Any]]) -> str:
+        try:
+            canonical = json.dumps(messages, sort_keys=True, separators=(",", ":"))
+        except Exception:
+            # Fallback: coarse hashing of str(messages)
+            canonical = str(messages)
+        return hashlib.sha256(canonical.encode("utf-8", errors="ignore")).hexdigest()
+
+    @staticmethod
+    def _messages_to_text(messages: list[dict[str, T.Any]]) -> str:
+        lines: list[str] = []
+        for m in messages:
+            role = m.get("role", "")
+            lines.append(f"[{role.upper()}]")
+            content = m.get("content", [])
+            if isinstance(content, str):
+                lines.append(content)
+            else:
+                for c in content:
+                    t = c.get("type")
+                    if t == "text":
+                        lines.append(c.get("text", ""))
+            lines.append("")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _save_failure_prompt(*, challenge_id: str, model_value: str, messages: list[dict[str, T.Any]], prompt_hash: str, wire_messages: list[dict[str, T.Any]] | None = None) -> str:
+        base = Path("failures") / challenge_id
+        base.mkdir(parents=True, exist_ok=True)
+        timestamp = int(time.time())
+        meta_header = (
+            f"challenge_id: {challenge_id}\n"
+            f"model: {model_value}\n"
+            f"prompt_hash: {prompt_hash}\n"
+            f"timestamp: {timestamp}\n\n"
+            "Instructions:\n"
+            "- The text below is a readable dump of the prompt messages (roles + text).\n"
+            "- The JSON file contains the original messages structure.\n"
+            "- If available, wire.json contains the exact message payload sent to the provider.\n"
+            "- Paste into your UI accordingly and save the assistant response to manual_responses/" + prompt_hash + ".txt\n\n"
+        )
+        txt_path = base / f"{prompt_hash}.txt"
+        json_path = base / f"{prompt_hash}.json"
+        wire_path = base / f"{prompt_hash}.wire.json"
+        try:
+            with open(txt_path, "w", encoding="utf-8") as f:
+                f.write(meta_header)
+                f.write(Attempt._messages_to_text(messages))
+        except Exception:
+            pass
+        try:
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(messages, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+        if wire_messages is not None:
+            try:
+                with open(wire_path, "w", encoding="utf-8") as f:
+                    json.dump(wire_messages, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+        return str(txt_path)
+
     @classmethod
     async def from_messages_many(
         cls,
@@ -471,6 +554,44 @@ class Attempt(BaseModel):
     ) -> list["Attempt"]:
         from src.llms import get_next_messages
 
+        # Manual override path: if a response exists in manual_responses matching this prompt hash, use it.
+        prompt_hash = Attempt._prompt_hash(deepcopy(messages))
+        manual_resp_path = Path("manual_responses") / f"{prompt_hash}.txt"
+        if manual_resp_path.exists():
+            try:
+                manual_text = manual_resp_path.read_text(encoding="utf-8")
+                logfire.debug(f"[{challenge.id}] Using manual response from {manual_resp_path}")
+                llm_responses = [manual_text]
+                grid_lists = await cls.llm_responses_to_result_grids_list(
+                    llm_responses=llm_responses,
+                    challenge=challenge,
+                    returns_python=attempt_config.prompt_config.returns_python,
+                )
+                # Build a single Attempt with zero usage
+                attempts: list[Attempt] = []
+                for llm_response, grid_list in zip([(manual_text, ModelUsage(cache_creation_input_tokens=0, cache_read_input_tokens=0, input_tokens=0, output_tokens=0))], grid_lists, strict=True):
+                    if grid_list:
+                        python_str, test_grid, train_grids = grid_list
+                        attempts.append(
+                            Attempt(
+                                id=f"{challenge.id}-{random_string()}",
+                                challenge=challenge,
+                                messages=[
+                                    *messages,
+                                    {"role": "assistant", "content": [{"type": "text", "text": manual_text}]},
+                                ],
+                                python_code_str=python_str,
+                                train_attempts=train_grids,
+                                test_attempt=test_grid,
+                                config=attempt_config,
+                                usage=ModelUsage(cache_creation_input_tokens=0, cache_read_input_tokens=0, input_tokens=0, output_tokens=0),
+                            )
+                        )
+                if attempts:
+                    return attempts
+            except Exception as e:
+                logfire.debug(f"[{challenge.id}] Failed manual response path: {e}")
+
         try:
             next_messages = await get_next_messages(
                 messages=deepcopy(messages),
@@ -480,12 +601,53 @@ class Attempt(BaseModel):
             )
             if not next_messages:
                 print(f"[{challenge.id}] no next messages")
+                # Save the prompt for manual retry
+                try:
+                    wire = None
+                    try:
+                        # Compute provider payload for OpenRouter path
+                        from src.models import Model
+                        from src.llms import text_only_messages
+                        if attempt_config.llm_config.model == Model.openrouter_grok_4_fast_free:
+                            wire = text_only_messages(deepcopy(messages))
+                    except Exception:
+                        wire = None
+                    p = Attempt._save_failure_prompt(
+                        challenge_id=challenge.id,
+                        model_value=attempt_config.llm_config.model.value,
+                        messages=deepcopy(messages),
+                        prompt_hash=prompt_hash,
+                        wire_messages=wire,
+                    )
+                    print(f"[{challenge.id}] Saved failure prompt to {p}")
+                except Exception:
+                    pass
                 return []
         except Exception as e:
             logfire.debug(
                 f"[{challenge.id}] BIG PROBLEM***** Error getting next messages: {e}"
             )
             print(f"[{challenge.id}] BIG PROBLEM***** Error getting next messages: {e}")
+            # Save the prompt for manual retry
+            try:
+                wire = None
+                try:
+                    from src.models import Model
+                    from src.llms import text_only_messages
+                    if attempt_config.llm_config.model == Model.openrouter_grok_4_fast_free:
+                        wire = text_only_messages(deepcopy(messages))
+                except Exception:
+                    wire = None
+                p = Attempt._save_failure_prompt(
+                    challenge_id=challenge.id,
+                    model_value=attempt_config.llm_config.model.value,
+                    messages=deepcopy(messages),
+                    prompt_hash=prompt_hash,
+                    wire_messages=wire,
+                )
+                print(f"[{challenge.id}] Saved failure prompt to {p}")
+            except Exception:
+                pass
             return []
         print(f"[{challenge.id}] llm responses: {next_messages}")
         logfire.debug(f"[{challenge.id}] llm responses: {next_messages}")

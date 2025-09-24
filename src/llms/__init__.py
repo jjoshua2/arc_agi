@@ -6,6 +6,10 @@ import re
 import time
 import typing as T
 from datetime import timedelta
+import random
+import json
+from collections import deque
+from contextlib import asynccontextmanager
 
 import google.generativeai as genai
 import PIL.Image
@@ -15,6 +19,7 @@ from google.generativeai import caching as gemini_caching
 from openai import AsyncAzureOpenAI, AsyncOpenAI
 from xai_sdk import AsyncClient
 from xai_sdk.chat import user, assistant, system, image
+import httpx
 
 from src import logfire
 from src.logic import random_string
@@ -26,6 +31,55 @@ if "GEMINI_API_KEY" in os.environ:
 
 def remove_thinking(text):
     return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+
+
+# Global concurrency and rate limiting for OpenRouter
+_openrouter_sem: asyncio.Semaphore | None = None
+_openrouter_timestamps: deque[float] = deque()
+_openrouter_lock = asyncio.Lock()
+
+
+def _get_openrouter_limits() -> tuple[int, int]:
+    try:
+        rpm = max(1, int(os.environ.get("OPENROUTER_RPM", "20")))
+    except Exception:
+        rpm = 20
+    try:
+        conc = max(1, int(os.environ.get("OPENROUTER_CONCURRENCY", "20")))
+    except Exception:
+        conc = 20
+    # Hard cap to avoid runaway
+    conc = min(conc, 40)
+    rpm = min(rpm, 120)  # allow user to raise a bit, but keep sane upper bound
+    return rpm, conc
+
+
+@asynccontextmanager
+async def _openrouter_guard():
+    global _openrouter_sem
+    rpm, conc = _get_openrouter_limits()
+    if _openrouter_sem is None:
+        _openrouter_sem = asyncio.Semaphore(conc)
+    await _openrouter_sem.acquire()
+    try:
+        # Simple token bucket: ensure <= rpm per 60 seconds
+        async with _openrouter_lock:
+            now = time.time()
+            # prune old
+            while _openrouter_timestamps and now - _openrouter_timestamps[0] >= 60.0:
+                _openrouter_timestamps.popleft()
+            # if full, wait until next slot opens
+            while len(_openrouter_timestamps) >= rpm:
+                earliest = _openrouter_timestamps[0]
+                wait_s = max(0.0, 60.0 - (now - earliest)) + random.uniform(0.01, 0.05)
+                await asyncio.sleep(wait_s)
+                now = time.time()
+                while _openrouter_timestamps and now - _openrouter_timestamps[0] >= 60.0:
+                    _openrouter_timestamps.popleft()
+            _openrouter_timestamps.append(now)
+        yield
+    finally:
+        _openrouter_sem.release()
 
 
 def text_only_messages(messages: list[dict[str, T.Any]]) -> list[dict[str, T.Any]]:
@@ -46,6 +100,170 @@ def text_only_messages(messages: list[dict[str, T.Any]]) -> list[dict[str, T.Any
                 }
             )
     return new_messages
+
+
+async def _openrouter_completion_with_adaptive_max_tokens(
+    *,
+    client: AsyncOpenAI,
+    model_name: str,
+    messages: list[dict[str, T.Any]],
+    temperature: float,
+    extra_body: dict | None = None,
+    start_cap: int | None = None,
+    max_attempts: int = 1,
+):
+    """
+    Call OpenRouter with an adaptive max_tokens strategy.
+
+    - Starts from an initial cap (env OPENROUTER_MAX_TOKENS or 400_000)
+    - On size/limit/context errors: backs off (halves or tightens) and retries
+    - On JSON decode / HTML responses: treats as transient, logs a preview, backs off, and retries
+    - On other transient errors (rate/timeout/gateway): randomized exponential backoff and retry
+    """
+    cap = start_cap or int(os.environ.get("OPENROUTER_MAX_TOKENS", "400000"))
+    attempt = 0
+    last_err: Exception | None = None
+
+    MIN_CAP = 256  # Conservative floor to avoid infinite loops
+
+    while attempt < max_attempts and cap >= MIN_CAP:
+        try:
+            return await client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=cap,
+                extra_body=extra_body or {},
+            )
+        except Exception as e:
+            s = str(e).lower()
+            last_err = e
+
+            # Try to preview a snippet of the response body for diagnostics
+            body_preview = ""
+            try:
+                resp = getattr(e, "response", None)
+                if resp is not None:
+                    # Some SDKs expose .text, others require reading .body
+                    if hasattr(resp, "text") and resp.text is not None:
+                        body_preview = (resp.text or "")[:256]
+                    elif hasattr(resp, "body") and resp.body is not None:
+                        try:
+                            body_preview = resp.body.decode("utf-8", errors="ignore")[:256]
+                        except Exception:
+                            body_preview = str(resp.body)[:256]
+            except Exception:
+                pass
+
+            # Log the error with a short body preview (helps spot HTML or gateway pages)
+            try:
+                logfire.debug(
+                    f"OpenRouter error (cap={cap}, attempt={attempt}): {e} | body_preview={body_preview!r}"
+                )
+            except Exception:
+                pass
+            # Also print to console so it isn't missed when debug logs are not visible
+            try:
+                print(
+                    f"OpenRouter error (cap={cap}, attempt={attempt}): {e} | body_preview={body_preview!r}"
+                )
+            except Exception:
+                pass
+
+            # Optional diagnostic raw retry to capture status/headers/body
+            if os.environ.get("OPENROUTER_DIAG_RAW", "0") == "1":
+                try:
+                    async with _openrouter_guard():
+                        async with httpx.AsyncClient(timeout=60) as _client:
+                            headers = {
+                                "Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}",
+                                "Content-Type": "application/json",
+                                "Accept": "application/json",
+                                "Connection": "close",
+                                "HTTP-Referer": os.environ.get("OPENROUTER_SITE_URL", "http://localhost"),
+                                "X-Title": os.environ.get("OPENROUTER_APP_NAME", "arc_agi"),
+                            }
+                            payload = {
+                                "model": model_name,
+                                "messages": messages,
+                                "temperature": temperature,
+                                "max_tokens": cap,
+                            }
+                            if extra_body:
+                                payload["extra_body"] = extra_body
+                            _resp = await _client.post(
+                                "https://openrouter.ai/api/v1/chat/completions",
+                                json=payload,
+                                headers=headers,
+                            )
+                            _preview = (_resp.text or "")[:2048]
+                            print(
+                                f"[DIAG_RAW] status={_resp.status_code} ct={_resp.headers.get('content-type')} cl={_resp.headers.get('content-length')} body_preview={_preview!r}"
+                            )
+                            logfire.debug(
+                                f"[DIAG_RAW] status={_resp.status_code} ct={_resp.headers.get('content-type')} cl={_resp.headers.get('content-length')} body_preview={_preview!r}"
+                            )
+                except Exception as de:
+                    try:
+                        print(f"[DIAG_RAW] failed to fetch raw response: {de}")
+                        logfire.debug(f"[DIAG_RAW] failed to fetch raw response: {de}")
+                    except Exception:
+                        pass
+
+            # 1) Token/context-limit hints => reduce cap and retry
+            limit_hints = (
+                "413",
+                "payload too large",
+                "too large",
+                "max tokens",
+                "maximum tokens",
+                "max_output_tokens",
+                "exceeds",
+                "length",
+                "context",
+                "token limit",
+            )
+            if any(h in s for h in limit_hints) or any(h in (body_preview or "").lower() for h in limit_hints):
+                cap = max(MIN_CAP, cap // 2)
+                attempt += 1
+                continue
+
+            # 2) JSON decode / non-JSON body (proxy/HTML/gateway) => transient retry with backoff
+            json_hints = ("expecting value", "json", "<!doctype", "<html")
+            if any(h in s for h in json_hints) or any(h in (body_preview or "").lower() for h in json_hints):
+                # Fail fast on JSON decode/non-JSON body
+                raise
+
+            # 3) Other transient errors (rate limits / timeouts / gateway)
+            transient_hints = ("429", "rate", "timeout", "temporar", "retry", "busy", "unavailable", "gateway", "bad gateway", "502", "504")
+            if any(h in s for h in transient_hints) or any(h in (body_preview or "").lower() for h in transient_hints):
+                attempt += 1
+                # Try to respect Retry-After if present
+                delay = None
+                try:
+                    resp = getattr(e, "response", None)
+                    if resp is not None and hasattr(resp, "headers"):
+                        ra = resp.headers.get("retry-after")
+                        if ra:
+                            delay = float(ra)
+                except Exception:
+                    delay = None
+                if delay is None:
+                    base = min(180.0, 30.0 * (attempt + 1))
+                    delay = base * random.uniform(0.8, 1.3)
+                await asyncio.sleep(delay)
+                continue
+
+            # Unknown error: re-raise
+            raise
+
+    # Exhausted retries; bubble up last error
+    try:
+        print(f"OpenRouter adaptive call exhausted retries; last error: {last_err}")
+        logfire.debug(f"OpenRouter adaptive call exhausted retries; last error: {last_err}")
+    except Exception:
+        pass
+    raise last_err if last_err else RuntimeError("OpenRouter adaptive call failed with no exception")
 
 
 async def get_next_message_anthropic(
@@ -557,7 +775,59 @@ async def get_next_messages(
         else:
             raise ValueError(f"Invalid model: {model}")
         # filter out the Nones
-    elif model in [Model.grok_3, Model.grok_4]:
+        return [m for m in n_messages if m]
+    elif model == Model.openrouter_grok_4_fast_free:
+        openrouter_client = AsyncOpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=os.environ["OPENROUTER_API_KEY"],
+            timeout=1200,
+            max_retries=10,
+            default_headers={
+                "HTTP-Referer": os.environ.get("OPENROUTER_SITE_URL", "http://localhost"),
+                "X-Title": os.environ.get("OPENROUTER_APP_NAME", "arc_agi"),
+                "Accept": "application/json",
+                "Connection": "close",
+            },
+        )
+        allow_images = os.environ.get("OPENROUTER_ALLOW_IMAGES", "0") == "1"
+        cleaned_messages = messages if allow_images else text_only_messages(messages)
+        async def _one_call():
+            try:
+                async with _openrouter_guard():
+                    message = await _openrouter_completion_with_adaptive_max_tokens(
+                        client=openrouter_client,
+                        model_name=model.value,
+                        messages=cleaned_messages,
+                        temperature=temperature,
+                        extra_body={"reasoning": {"effort": os.environ.get("OPENROUTER_REASONING_EFFORT", "high")}},
+                        start_cap=int(os.environ.get("OPENROUTER_MAX_TOKENS", "200000")),
+                    )
+                if message.usage.prompt_tokens_details:
+                    cached_tokens = message.usage.prompt_tokens_details.cached_tokens
+                else:
+                    cached_tokens = 0
+                usage = ModelUsage(
+                    cache_creation_input_tokens=0,
+                    cache_read_input_tokens=cached_tokens,
+                    input_tokens=message.usage.prompt_tokens - cached_tokens,
+                    output_tokens=message.usage.completion_tokens,
+                )
+                return message.choices[0].message.content, usage
+            except Exception as e:
+                print(f"OpenRouter final failure in _one_call: {e}")
+                logfire.debug(f"OpenRouter final failure in _one_call: {e}")
+                return None
+        raw_results = await asyncio.gather(*[_one_call() for _ in range(n_times)], return_exceptions=True)
+        out: list[tuple[str, ModelUsage]] = []
+        for r in raw_results:
+            if isinstance(r, Exception):
+                print(f"OpenRouter call failed with exception: {r}")
+                logfire.debug(f"OpenRouter call failed with exception: {r}")
+                continue
+            if r:
+                out.append(r)
+        return out if out else None
+    elif model in [Model.grok_3, Model.grok_4, Model.grok_4_fast_reasoning]:
         xai_client = AsyncClient(
             api_key=os.environ["XAI_API_KEY"],
             timeout=3600, # 3600 seconds = 60 minutes
@@ -808,6 +1078,38 @@ async def get_next_message(
             temperature=temperature,
             max_tokens=20_000,
         )
+        if message.usage.prompt_tokens_details:
+            cached_tokens = message.usage.prompt_tokens_details.cached_tokens
+        else:
+            cached_tokens = 0
+        return message.choices[0].message.content, ModelUsage(
+            cache_creation_input_tokens=0,
+            cache_read_input_tokens=cached_tokens,
+            input_tokens=message.usage.prompt_tokens - cached_tokens,
+            output_tokens=message.usage.completion_tokens,
+        )
+    elif model == Model.openrouter_grok_4_fast_free:
+        openrouter_client = AsyncOpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=os.environ["OPENROUTER_API_KEY"],
+            default_headers={
+                "HTTP-Referer": os.environ.get("OPENROUTER_SITE_URL", "http://localhost"),
+                "X-Title": os.environ.get("OPENROUTER_APP_NAME", "arc_agi"),
+                "Accept": "application/json",
+                "Connection": "close",
+            },
+        )
+        allow_images = os.environ.get("OPENROUTER_ALLOW_IMAGES", "0") == "1"
+        cleaned_messages = messages if allow_images else text_only_messages(messages)
+        async with _openrouter_guard():
+            message = await _openrouter_completion_with_adaptive_max_tokens(
+                client=openrouter_client,
+                model_name=model.value,
+                messages=cleaned_messages,
+                temperature=temperature,
+                extra_body={"reasoning": {"effort": os.environ.get("OPENROUTER_REASONING_EFFORT", "high")}},
+                start_cap=int(os.environ.get("OPENROUTER_MAX_TOKENS", "200000")),
+            )
         if message.usage.prompt_tokens_details:
             cached_tokens = message.usage.prompt_tokens_details.cached_tokens
         else:

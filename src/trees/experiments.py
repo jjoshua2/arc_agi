@@ -965,7 +965,7 @@ grok_dreamcoder_tree: list[RootAttemptConfig] = [
     RootAttemptConfig(
         attempts=5,
         llm_config=LLMConfig(
-            model=Model.grok_4,
+            model=Model.openrouter_grok_4_fast_free,
             temperature=0.95,
         ),
         prompt_config=RootPromptConfig(

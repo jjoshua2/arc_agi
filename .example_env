@@ -3,6 +3,19 @@ ANTHROPIC_API_KEY=
 NVIDIA_API_KEY=
 GROQ_API_KEY=
 OPENROUTER_API_KEY=
+# OpenRouter reasoning effort for models that support it: low | medium | high
+OPENROUTER_REASONING_EFFORT=high
+# Enable/disable library precheck in eval mode (1 = enabled, 0 = disabled)
+LIBRARY_PRECHECK=1
+# Number of top library primitives to select from the library per challenge
+SUBMISSION_PRIMITIVES_TOP_K=2
+# OpenRouter throttling (defaults tuned for stability)
+OPENROUTER_RPM=20
+OPENROUTER_CONCURRENCY=20
+# Emit one raw diagnostic HTTP call per failure to inspect status/headers/body (0/1)
+OPENROUTER_DIAG_RAW=0
+# Allow sending images to OpenRouter (0 = strip images to text, 1 = send images)
+OPENROUTER_ALLOW_IMAGES=0
 AZURE_OPENAI_API_KEY=
 AZURE_OPENAI_ENDPOINT=
 GEMINI_API_KEY=
