@@ -3,6 +3,8 @@ import random
 import pickle
 import os
 import argparse
+import json
+import time
 from collections import defaultdict
 import typing as T
 
@@ -119,7 +121,7 @@ async def main() -> None:
     parser.add_argument("-e", "--eval", action="store_true", help="Use saved library")
     parser.add_argument("-l", "--lpn", type=str, help="Use LPN model")
     parser.add_argument("-v1", "--version1", action="store_true", help="Test on ARC-AGI-1 public eval set")
-    parser.add_argument("-p", "--path", type=str, help="Input dataset file path")
+    parser.add_argument("-p", "--path", type=str, help="Input dataset path (JSON file or directory)")
     parser.add_argument("--precheck-only", action="store_true", help="Only run library precheck; no LLM calls (requires -e)")
     args = parser.parse_args()
 
@@ -137,14 +139,28 @@ async def main() -> None:
     num_tested: int = 0
     total_cost_in_cents: list[float] = [ 0.0 ]
 
+    start_time = time.perf_counter()
+    grace_seconds = (11 * 3600) + (45 * 60)
+    hard_stop_seconds = (11 * 3600) + (50 * 60)
+    grace_triggered = False
+    hard_stop_time = start_time + hard_stop_seconds
+
     if args.version1:
         challenges = eval_challenges
     elif args.path:
         print(f"Building challenges from {args.path}")
-        challenges = build_challenges(
-            challenges_path=Path(args.path),
-            solutions_path=None,
-        )
+        path = Path(args.path)
+        if path.is_dir():
+            # Load all *.json files recursively from the directory
+            challenges = build_challenges_v2(
+                challenges_path=path,
+            )
+        else:
+            # Load a single JSON file
+            challenges = build_challenges(
+                challenges_path=path,
+                solutions_path=None,
+            )
     else:
         challenges = v2_eval_challenges
 
@@ -171,7 +187,7 @@ async def main() -> None:
     logfire.debug(f"eval set size: {len(eval_ids_to_test)}")
     debug(eval_ids_to_test)
 
-    from src.trees.experiments import grok_dreamcoder_tree
+    from src.trees.experiments import grokfast_dreamcoder_tree
     from src.models import Library
 
     # Function to load library
@@ -226,6 +242,54 @@ async def main() -> None:
     intermediate_solutions_d: dict[str, ChallengeSolutionWithAccuracy] = {}
     solutions_d: dict[str, list[ChallengeSolution]] = {}
 
+    def _load_previous_submission_state() -> tuple[dict[str, list[ChallengeSolution]], set[str]]:
+        prior_solutions: dict[str, list[ChallengeSolution]] = {}
+        solved_ids: set[str] = set()
+        solved_ids_file = Path("solved_ids.json")
+        if solved_ids_file.exists():
+            try:
+                raw_ids = json.loads(solved_ids_file.read_text(encoding="utf-8"))
+                if isinstance(raw_ids, list):
+                    solved_ids.update(str(cid) for cid in raw_ids)
+            except Exception as e:
+                print(f"WARNING: failed to read solved_ids.json: {e}")
+        submission_path = Path("submission.json")
+        if submission_path.exists():
+            try:
+                adapter = TypeAdapter(dict[str, list[ChallengeSolution]])
+                stored = adapter.validate_json(submission_path.read_text(encoding="utf-8"))
+                for cid, entries in stored.items():
+                    if cid not in challenges:
+                        continue
+                    prior_solutions[cid] = entries
+                    if cid in solved_ids:
+                        continue
+                    challenge = challenges[cid]
+                    expected = [t.output for t in challenge.test]
+                    if not expected or any(e is None for e in expected):
+                        continue
+                    for entry in entries:
+                        attempt1_ok = len(entry.attempt_1) == len(expected) and all(
+                            pred == exp for pred, exp in zip(entry.attempt_1, expected)
+                        )
+                        attempt2_ok = len(entry.attempt_2) == len(expected) and all(
+                            pred == exp for pred, exp in zip(entry.attempt_2, expected)
+                        )
+                        if attempt1_ok or attempt2_ok:
+                            solved_ids.add(cid)
+                            break
+            except Exception as e:
+                print(f"WARNING: failed to inspect submission.json for solved challenges: {e}")
+        return prior_solutions, solved_ids
+
+    previous_solutions, preexisting_solved_ids = _load_previous_submission_state()
+    if previous_solutions:
+        for cid, entries in previous_solutions.items():
+            solutions_d[cid] = entries
+    if preexisting_solved_ids:
+        solved_challenges.update(preexisting_solved_ids)
+        print(f"Loaded {len(preexisting_solved_ids)} previously solved challenges.")
+
     async def try_solve_challenge(challenge_id: str, solved_challenges: set[str], total_cost_in_cents: float) -> bool:
         if challenge_id in solved_challenges:
             print(f"Challenge {challenge_id} already solved")
@@ -238,9 +302,9 @@ async def main() -> None:
         # Library-only precheck: if -e (eval) and LIBRARY_PRECHECK != '0', try to solve using existing primitives without any LLM calls.
         solutions_and_accuracies = None
         if args.eval and os.environ.get("LIBRARY_PRECHECK", "1") != "0" and library and library.primitives:
-            try:
-                # Evaluate each primitive on training examples; if one achieves perfect train accuracy, use it to generate test outputs.
-                for primitive in library.primitives:
+            # Evaluate each primitive on training examples; if one achieves perfect train accuracy, use it to generate test outputs.
+            for primitive in library.primitives:
+                try:
                     tr = run_python_transform_sync_cached(
                         code=primitive.python_code_str,
                         grid_lists=[train.input for train in challenge.train],
@@ -268,11 +332,12 @@ async def main() -> None:
                                 else:
                                     test_predictions.append([[0]])
                             solutions_and_accuracies = [ (test_predictions, 1.0), (test_predictions, 1.0) ]
-                            print(f"[{challenge.id}] solved via library precheck using primitive {primitive.id}")
-                            logfire.debug(f"[{challenge.id}] solved via library precheck using primitive {primitive.id}")
+                            print(f"[{challenge.id}] solved via library precheck using primitive {getattr(primitive, 'id', '?')}")
+                            logfire.debug(f"[{challenge.id}] solved via library precheck using primitive {getattr(primitive, 'id', '?')}")
                             break
-            except Exception as e:
-                logfire.debug(f"[{challenge.id}] library precheck error: {e}")
+                except Exception as e:
+                    logfire.debug(f"[{challenge.id}] library precheck primitive {getattr(primitive, 'id', '?')} error: {e}")
+                    continue
 
         if solutions_and_accuracies is None:
             if args.precheck_only:
@@ -286,7 +351,7 @@ async def main() -> None:
             else:
                 solutions_and_accuracies = await solve_challenge_with_accuracy(
                     challenge=challenge,
-                    tree=grok_dreamcoder_tree,
+                    tree=grokfast_dreamcoder_tree,
                     library=library,
                     use_primitives_weighed_by_score=not lpn_model,
                     lpn_model=lpn_model,
@@ -393,7 +458,7 @@ async def main() -> None:
     if attempts_env:
         try:
             attempts_override = max(1, int(attempts_env))
-            from src.trees.experiments import grok_dreamcoder_tree as _tree_ref
+            from src.trees.experiments import grokfast_dreamcoder_tree as _tree_ref
             for node in _tree_ref:
                 node.attempts = attempts_override
             print(f"Using SUBMISSION_ATTEMPTS={attempts_override}")
@@ -411,9 +476,22 @@ async def main() -> None:
     print(f"Using SUBMISSION_BATCH_SIZE={batch_size}")
     logfire.debug(f"Using SUBMISSION_BATCH_SIZE={batch_size}")
 
+    disable_low_solve_stop_env = os.environ.get("SUBMISSION_DISABLE_LOW_SOLVE_STOP", "0").lower()
+    low_solve_stop_enabled = disable_low_solve_stop_env not in {"1", "true", "yes"}
+    low_solve_stop_triggered = False
+
+    time_exhausted = False
+
     for i in range(total_rounds):
+        if time.perf_counter() >= hard_stop_time:
+            print("Hard stop already reached before starting round; ending early.")
+            logfire.debug("Hard stop already reached before starting round; ending early.")
+            time_exhausted = True
+            break
         # Track per-round count of cases that are perfect on train but wrong on test
         train_perfect_but_test_wrong: set[str] = set()
+        solved_before_round_snapshot = set(solved_challenges)
+        round_new_solved_ids: set[str] = set()
 
         # Sliding window concurrency: keep up to batch_size tasks in-flight
         sem = asyncio.Semaphore(batch_size)
@@ -460,31 +538,118 @@ async def main() -> None:
                     pass
                 return False
 
-        tasks = [asyncio.create_task(bounded_try(cid)) for cid in eval_ids_to_test]
+        eval_iter = iter(eval_ids_to_test)
+        active_tasks: dict[asyncio.Task, str] = {}
+        ids_exhausted = False
+        hard_timeout_reached = False
 
-        for fut in asyncio.as_completed(tasks):
-            challenge_id, solved, err = await fut
-            processed += 1
-            if err is not None:
-                print(f"Error solving challenge {challenge_id}: {err}")
-                logfire.debug(f"Error solving challenge {challenge_id}: {err}")
-            elif solved:
-                solved_challenges.add(challenge_id)
-            else:
-                print(f"Challenge {challenge_id} not solved")
-                logfire.debug(f"Challenge {challenge_id} not solved")
+        while active_tasks or not ids_exhausted:
+            now = time.perf_counter()
+            elapsed = now - start_time
 
-            # Maintain per-round FP count
+            if (not grace_triggered) and elapsed >= grace_seconds:
+                grace_triggered = True
+                print("Run has reached the 11h45m mark. Pausing new challenge launches and allowing in-flight work up to the hard stop.")
+                logfire.debug("Grace period trigger reached at %.2fh" % (elapsed / 3600.0))
+
+            if grace_triggered and now >= hard_stop_time:
+                print("Hard stop reached at 11h50m. Cancelling remaining work and finalizing submission.")
+                logfire.debug("Hard stop reached with %d active tasks" % len(active_tasks))
+                hard_timeout_reached = True
+                break
+
+            while (not grace_triggered) and (len(active_tasks) < batch_size) and (not ids_exhausted):
+                try:
+                    cid = next(eval_iter)
+                except StopIteration:
+                    ids_exhausted = True
+                    break
+                task = asyncio.create_task(bounded_try(cid))
+                active_tasks[task] = cid
+
+            if not active_tasks:
+                if ids_exhausted:
+                    break
+                if grace_triggered:
+                    # No work in flight and we are in grace mode; exit round.
+                    break
+                continue
+
+            wait_timeout = None
+            if grace_triggered:
+                wait_timeout = max(0.0, hard_stop_time - now)
+
+            wait_set = set(active_tasks.keys())
+            done, pending = await asyncio.wait(wait_set, return_when=asyncio.FIRST_COMPLETED, timeout=wait_timeout)
+
+            if not done:
+                hard_timeout_reached = True
+                break
+
+            for task in done:
+                cid = active_tasks.pop(task, None)
+                if cid is None:
+                    continue
+                try:
+                    challenge_id, solved, err = task.result()
+                except asyncio.CancelledError:
+                    continue
+                processed += 1
+                if err is not None:
+                    print(f"Error solving challenge {challenge_id}: {err}")
+                    logfire.debug(f"Error solving challenge {challenge_id}: {err}")
+                elif solved:
+                    was_previously_solved = challenge_id in solved_challenges
+                    if not was_previously_solved:
+                        solved_challenges.add(challenge_id)
+                    if (
+                        challenge_id not in solved_before_round_snapshot
+                        and challenge_id not in round_new_solved_ids
+                    ):
+                        round_new_solved_ids.add(challenge_id)
+                else:
+                    print(f"Challenge {challenge_id} not solved")
+                    logfire.debug(f"Challenge {challenge_id} not solved")
+
+                try:
+                    if _is_train_perfect_but_test_wrong(challenge_id):
+                        train_perfect_but_test_wrong.add(challenge_id)
+                except Exception:
+                    pass
+
+                if processed % max(1, batch_size // 2) == 0 or processed == len(eval_ids_to_test):
+                    print(f"Round {i+1} progress: {processed}/{len(eval_ids_to_test)} processed, {len(solved_challenges)} solved so far")
+                    logfire.debug(f"Round {i+1} progress: {processed}/{len(eval_ids_to_test)} processed, {len(solved_challenges)} solved so far")
+
+        if hard_timeout_reached:
+            to_cancel = list(active_tasks.keys())
+            if to_cancel:
+                for task in to_cancel:
+                    task.cancel()
+                await asyncio.gather(*to_cancel, return_exceptions=True)
+            time_exhausted = True
+        elif grace_triggered and not ids_exhausted:
+            to_cancel = list(active_tasks.keys())
+            if to_cancel:
+                for task in to_cancel:
+                    task.cancel()
+                await asyncio.gather(*to_cancel, return_exceptions=True)
+            time_exhausted = True
+
+        if time_exhausted:
+            remaining = []
             try:
-                if _is_train_perfect_but_test_wrong(challenge_id):
-                    train_perfect_but_test_wrong.add(challenge_id)
-            except Exception:
+                while True:
+                    remaining.append(next(eval_iter))
+            except StopIteration:
                 pass
+            if remaining:
+                print(f"Timing shutdown skipped {len(remaining)} remaining challenges in this round.")
+                logfire.debug(f"Timing shutdown skipped challenges: {remaining}")
 
-            # Light progress signal without batch head-of-line blocking
-            if processed % max(1, batch_size // 2) == 0 or processed == len(eval_ids_to_test):
-                print(f"Round {i+1} progress: {processed}/{len(eval_ids_to_test)} processed, {len(solved_challenges)} solved so far")
-                logfire.debug(f"Round {i+1} progress: {processed}/{len(eval_ids_to_test)} processed, {len(solved_challenges)} solved so far")
+        if time_exhausted:
+            # Still produce per-round summary before exiting outer loop
+            pass
 
         # End-of-round summary
         logfire.debug(f"After {i+1} rounds, Solved Challenges: {solved_challenges}")
@@ -507,11 +672,313 @@ async def main() -> None:
         logfire.debug(f"After {i+1} rounds, Total cost in cents: {total_cost_in_cents[0]}")
         print(f"After {i+1} rounds, Total cost in cents: {total_cost_in_cents[0]}")
 
+        print(
+            f"After {i+1} rounds, New challenges solved this round: {len(round_new_solved_ids)}"
+        )
+        logfire.debug(
+            f"After {i+1} rounds, New challenges solved this round: {len(round_new_solved_ids)}"
+        )
+
+
+        if time_exhausted:
+            print("Timing limit reached; exiting remaining rounds early.")
+            logfire.debug("Timing limit reached; exiting remaining rounds early.")
+            break
+
 
     print(f"FINAL: Solved Challenges: {solved_challenges}")
     print(f"FINAL: Correct Percent: {len(solved_challenges) / len(eval_ids_to_test)}")
 
     print(f"FINAL: Total cost in cents: {total_cost_in_cents[0]}")
+
+    total_runtime_seconds = time.perf_counter() - start_time
+    print(
+        "FINAL: Total runtime: "
+        f"{total_runtime_seconds / 3600:.2f} hours ({total_runtime_seconds / 60:.1f} minutes)"
+    )
+    logfire.debug(f"FINAL: Total runtime seconds: {total_runtime_seconds}")
+
+    try:
+        Path("solved_ids.json").write_text(
+            json.dumps(sorted(solved_challenges)),
+            encoding="utf-8",
+        )
+        print("Saved solved challenge IDs to solved_ids.json")
+    except Exception as e:
+        print(f"WARNING: failed to persist solved_ids.json: {e}")
+
+    # -------- Export unsolved best functions and summary (timestamped folder) --------
+    from datetime import datetime, timezone
+    from src.logic import get_top_two_attempts_for
+
+    def _safe_ts() -> str:
+        # Windows-safe timestamp like 2025-09-30T22-53-45Z
+        return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+
+    def _count_cell_mismatches(expected: list[list[int]], pred: list[list[int]]) -> int:
+        try:
+            if expected is None:
+                return 0
+            if pred is None:
+                # treat as full mismatch if no prediction
+                return len(expected) * (len(expected[0]) if expected else 0)
+            if len(expected) != len(pred) or (expected and pred and len(expected[0]) != len(pred[0])):
+                return len(expected) * (len(expected[0]) if expected else 0)
+            mism = 0
+            for i in range(len(expected)):
+                row_e, row_p = expected[i], pred[i]
+                for j in range(len(row_e)):
+                    if row_e[j] != row_p[j]:
+                        mism += 1
+            return mism
+        except Exception:
+            # be conservative
+            try:
+                return len(expected) * (len(expected[0]) if expected else 0)
+            except Exception:
+                return 0
+
+    def _total_mismatches_train(ch, attempt) -> int:
+        try:
+            total = 0
+            for idx, train in enumerate(ch.train):
+                pred = attempt.train_attempts[idx] if idx < len(attempt.train_attempts) else None
+                total += _count_cell_mismatches(train.output, pred)
+            return total
+        except Exception:
+            return 0
+
+    def _total_mismatches_test(ch, preds: list[list[list[int]]]) -> tuple[int, bool]:
+        # returns (total_mismatches, used_test)
+        try:
+            expected = [t.output for t in ch.test]
+            if any(e is None for e in expected):
+                return 0, False
+            total = 0
+            for idx, exp in enumerate(expected):
+                pr = preds[idx] if idx < len(preds) else None
+                total += _count_cell_mismatches(exp, pr)
+            return total, True
+        except Exception:
+            return 0, False
+
+    try:
+        # Build timestamped directory
+        ts_dir = os.path.join("unsolved", _safe_ts())
+        os.makedirs(ts_dir, exist_ok=True)
+
+        # Helpers
+        def _fallback_library_code(cid: str):
+            try:
+                # Use saved accuracy scores to pick best primitive for this challenge
+                scores_d = challenge_primitive_accuracy_scores.get(cid, {})
+                if not scores_d:
+                    return None, None
+                # Pick by (num_train_correct, avg_train_accuracy)
+                best_pid, (num_correct, avg_acc) = max(
+                    scores_d.items(), key=lambda kv: (kv[1][0], kv[1][1])
+                )
+                for p in getattr(library, "primitives", []):
+                    if getattr(p, "id", None) == best_pid:
+                        return (p.python_code_str or ""), {
+                            "primitive_id": best_pid,
+                            "num_train_correct": num_correct,
+                            "avg_train_accuracy": avg_acc,
+                        }
+                return None, None
+            except Exception:
+                return None, None
+
+        # Build per-challenge test predictions mapping from solutions_d
+        def _collect_test_preds(cid: str) -> tuple[list[GRID], list[GRID]]:
+            lst = solutions_d.get(cid, [])
+            attempt1_preds: list[GRID] = []
+            attempt2_preds: list[GRID] = []
+            for item in lst:
+                try:
+                    attempt1_preds.append(item.attempt_1)
+                    attempt2_preds.append(item.attempt_2)
+                except Exception:
+                    pass
+            return attempt1_preds, attempt2_preds
+
+        unsolved_ids = sorted(list(set(eval_ids_to_test) - set(solved_challenges)))
+
+        summary_rows = []  # for CSV
+        best_min_list = []  # for average of min mismatches across unsolved
+
+        for cid in unsolved_ids:
+            ch = challenges[cid]
+            top_two = get_top_two_attempts_for(cid) or []
+
+            # align test predictions (may be empty)
+            a1_preds, a2_preds = _collect_test_preds(cid)
+
+            stats = []
+            for idx, att in enumerate(top_two[:2]):
+                try:
+                    train_m = _total_mismatches_train(ch, att)
+                    test_preds = a1_preds if idx == 0 else a2_preds
+                    test_m, used_test = _total_mismatches_test(ch, test_preds)
+                    combined = train_m + (test_m if used_test else 0)
+                    stats.append({
+                        "attempt_index": idx + 1,
+                        "train_mismatches": train_m,
+                        "test_mismatches": test_m,
+                        "used_test": used_test,
+                        "combined_mismatches": combined,
+                        "code": att.python_code_str or "",
+                    })
+                except Exception:
+                    pass
+
+            # If no attempts captured, still write metadata so it’s visible; mark unknowns
+            if not stats:
+                # detect test availability
+                used_test_any = 0
+                try:
+                    exp = [t.output for t in ch.test]
+                    used_test_any = 0 if any(e is None for e in exp) else 1
+                except Exception:
+                    used_test_any = 0
+
+                # Fallback: choose best from saved library by cached accuracies
+                fb_code, fb_meta = _fallback_library_code(cid)
+                if fb_code:
+                    # Write best1 from library
+                    base_fn1 = f"{cid}_best1.py"
+                    with open(os.path.join(ts_dir, base_fn1), "w", encoding="utf-8") as f:
+                        f.write(fb_code)
+                    meta = {
+                        "challenge_id": cid,
+                        "fallback_library": True,
+                        "library_selection": fb_meta,
+                        "note": "no_llm_attempts_recorded_this_round",
+                    }
+                    with open(os.path.join(ts_dir, f"{cid}.json"), "w", encoding="utf-8") as f:
+                        json.dump(meta, f, indent=2)
+                    summary_rows.append([cid, "", "", used_test_any])
+                    continue
+
+                # Otherwise write minimal metadata so it’s visible
+                meta = {
+                    "challenge_id": cid,
+                    "note": "no_attempts_recorded_for_export",
+                }
+                with open(os.path.join(ts_dir, f"{cid}.json"), "w", encoding="utf-8") as f:
+                    json.dump(meta, f, indent=2)
+                summary_rows.append([cid, -1, -1, used_test_any])
+                continue
+
+            # Deduplicate by code (skip empty code strings)
+            seen_codes: set[str] = set()
+            deduped = []
+            for s in sorted(stats, key=lambda s: (s["combined_mismatches"], s["train_mismatches"], len(s["code"]))):
+                code_key = s["code"].strip()
+                if not code_key:
+                    continue
+                if code_key in seen_codes:
+                    continue
+                seen_codes.add(code_key)
+                deduped.append(s)
+                if len(deduped) >= 2:
+                    break
+
+            # Ensure at least one candidate is written if any code exists; else write metadata only
+            if not deduped:
+                # Fallback to best library primitive if available
+                fb_code, fb_meta = _fallback_library_code(cid)
+                if fb_code:
+                    base_fn1 = f"{cid}_best1.py"
+                    with open(os.path.join(ts_dir, base_fn1), "w", encoding="utf-8") as f:
+                        f.write(fb_code)
+                    meta = {
+                        "challenge_id": cid,
+                        "fallback_library": True,
+                        "library_selection": fb_meta,
+                        "note": "no_nonempty_code_in_llm_attempts",
+                        "attempts_count": len(stats),
+                    }
+                    with open(os.path.join(ts_dir, f"{cid}.json"), "w", encoding="utf-8") as f:
+                        json.dump(meta, f, indent=2)
+                    summary_rows.append([cid, "", "", 1 if any(s.get("used_test") for s in stats) else 0])
+                    continue
+
+                meta = {
+                    "challenge_id": cid,
+                    "note": "no_nonempty_code_in_attempts",
+                    "attempts_count": len(stats),
+                }
+                with open(os.path.join(ts_dir, f"{cid}.json"), "w", encoding="utf-8") as f:
+                    json.dump(meta, f, indent=2)
+                summary_rows.append([cid, -1, -1, 1 if any(s.get("used_test") for s in stats) else 0])
+                continue
+
+            best1 = deduped[0]
+            best_min_list.append(best1["combined_mismatches"])  # for summary average
+
+            # Write best1 code
+            base_fn1 = f"{cid}_best1.py"
+            with open(os.path.join(ts_dir, base_fn1), "w", encoding="utf-8") as f:
+                f.write(best1["code"])  # code only, as requested
+
+            # Optionally write best2 if present and different
+            best2 = deduped[1] if len(deduped) > 1 else None
+            if best2 is not None:
+                base_fn2 = f"{cid}_best2.py"
+                with open(os.path.join(ts_dir, base_fn2), "w", encoding="utf-8") as f:
+                    f.write(best2["code"])  # code only
+
+            # Write per-challenge JSON metadata
+            meta = {
+                "challenge_id": cid,
+                "best1": {
+                    "train_mismatches": best1["train_mismatches"],
+                    "test_mismatches": best1["test_mismatches"],
+                    "combined_mismatches": best1["combined_mismatches"],
+                    "used_test": best1["used_test"],
+                },
+            }
+            if best2 is not None:
+                meta["best2"] = {
+                    "train_mismatches": best2["train_mismatches"],
+                    "test_mismatches": best2["test_mismatches"],
+                    "combined_mismatches": best2["combined_mismatches"],
+                    "used_test": best2["used_test"],
+                }
+            with open(os.path.join(ts_dir, f"{cid}.json"), "w", encoding="utf-8") as f:
+                json.dump(meta, f, indent=2)
+
+            summary_rows.append([
+                cid,
+                best1["combined_mismatches"],
+                (best2["combined_mismatches"] if best2 is not None else ""),
+                1 if (best1["used_test"] or (best2 is not None and best2["used_test"])) else 0,
+            ])
+
+        # Write run-level summary
+        summary = {
+            "num_challenges": len(eval_ids_to_test),
+            "num_solved": len(solved_challenges),
+            "num_unsolved": len(unsolved_ids),
+            "avg_min_mismatches_across_unsolved": (
+                (sum(best_min_list) / len(best_min_list)) if best_min_list else 0.0
+            ),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        with open(os.path.join(ts_dir, "summary.json"), "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2)
+
+        # CSV summary
+        import csv
+        with open(os.path.join(ts_dir, "summary.csv"), "w", newline="", encoding="utf-8") as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(["challenge_id", "best1_combined_mismatches", "best2_combined_mismatches", "used_test_labels"])
+            writer.writerows(summary_rows)
+
+        print(f"Exported unsolved artifacts to {ts_dir}")
+    except Exception as e:
+        print(f"WARNING: failed to export unsolved artifacts: {e}")
 
     # Final summary of 'train-perfect but wrong on test' and remaining unsolved IDs not in that set
     try:

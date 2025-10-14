@@ -154,7 +154,7 @@ async def main() -> None:
     logfire.debug(f"eval set size: {len(eval_ids_to_test)}")
     debug(eval_ids_to_test)
 
-    from src.trees.experiments import grok_dreamcoder_tree
+from src.trees.experiments import deepseek_v3_1
     from src.models import Library
 
     # Function to load library
@@ -207,7 +207,7 @@ async def main() -> None:
     challenge_primitive_accuracy_scores = load_challenge_primitive_accuracy_scores()
     #print(f"challenge_primitive_accuracy_scores length: {len(challenge_primitive_accuracy_scores)}")
 
-    async def try_solve_challenge(challenge_id: str, solved_challenges: set[str], total_cost_in_cents: float) -> bool:
+    async def try_solve_challenge(challenge_id: str, solved_challenges: set[str], total_cost_in_cents: float, on_llm_dispatch=None) -> bool:
         if challenge_id in solved_challenges:
             print(f"Challenge {challenge_id} already solved")
             logfire.debug(f"Challenge {challenge_id} already solved")
@@ -260,7 +260,7 @@ async def main() -> None:
                 return False
             solutions = await solve_challenge(
                 challenge=challenge,
-                tree=grok_dreamcoder_tree,
+                tree=deepseek_v3_1,
                 library=library,
                 use_primitives_weighed_by_score=not lpn_model,
                 lpn_model=lpn_model,
@@ -269,6 +269,7 @@ async def main() -> None:
                 challenge_primitive_lpn_scores=challenge_primitive_lpn_scores,
                 challenge_primitive_accuracy_scores=challenge_primitive_accuracy_scores,
                 aggregate_cost_in_cents=total_cost_in_cents,
+                on_llm_dispatch=on_llm_dispatch,
             )
 
         if len(challenge.test) != len(solutions[0]):
@@ -300,7 +301,7 @@ async def main() -> None:
     if attempts_env:
         try:
             attempts_override = max(1, int(attempts_env))
-            from src.trees.experiments import grok_dreamcoder_tree as _tree_ref
+            from src.trees.experiments import deepseek_v3_1 as _tree_ref
             for node in _tree_ref:
                 node.attempts = attempts_override
             print(f"Using SUBMISSION_ATTEMPTS={attempts_override}")
@@ -312,9 +313,9 @@ async def main() -> None:
     # Optional: override batch size
     bs_env = os.environ.get("SUBMISSION_BATCH_SIZE")
     try:
-        batch_size = max(1, int(bs_env)) if bs_env else 60
+        batch_size = max(1, int(bs_env)) if bs_env else 4
     except Exception:
-        batch_size = 60
+        batch_size = 4
     print(f"Using SUBMISSION_BATCH_SIZE={batch_size}")
     logfire.debug(f"Using SUBMISSION_BATCH_SIZE={batch_size}")
 
@@ -337,12 +338,27 @@ async def main() -> None:
         processed = 0
 
         async def bounded_try(challenge_id: str):
-            async with sem:
-                try:
-                    res = await try_solve_challenge(challenge_id, solved_challenges, total_cost_in_cents)
-                    return (challenge_id, res, None)
-                except Exception as e:
-                    return (challenge_id, None, e)
+            await sem.acquire()
+            released = False
+            def _release():
+                nonlocal released
+                if not released:
+                    try:
+                        sem.release()
+                    except Exception:
+                        pass
+                    released = True
+            try:
+                res = await try_solve_challenge(challenge_id, solved_challenges, total_cost_in_cents, on_llm_dispatch=_release)
+                return (challenge_id, res, None)
+            except Exception as e:
+                return (challenge_id, None, e)
+            finally:
+                if not released:
+                    try:
+                        sem.release()
+                    except Exception:
+                        pass
 
         tasks = [asyncio.create_task(bounded_try(cid)) for cid in eval_ids_to_test]
 

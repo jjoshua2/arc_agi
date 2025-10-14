@@ -54,6 +54,10 @@ from typing import List, Tuple, Set, Union, Optional
 # Input grid
 grid_lists = {json.dumps(grid_lists)}
 
+# Guard default indices to avoid NameError in user code that references r_i/c_i without defining
+r_i = 0
+c_i = 0
+
 def to_python_array(obj):
     if isinstance(obj, np.integer):
         return int(obj)
@@ -69,10 +73,16 @@ try:
         # Call transform and get result
         result = transform(grid_list)
         result = to_python_array(result)
-        # Validate result type
+        # Validate result type and elements
         if not isinstance(result, list) or not all(isinstance(row, list) for row in result):
             print("Error: transform must return List[List[int]]", file=sys.stderr)
             sys.exit(1)
+        # Ensure every cell is an integer (reject None/float/str/etc.)
+        for r_i, row in enumerate(result):
+            for c_i, cell in enumerate(row):
+                if not isinstance(cell, int):
+                    print("Error: transform result has non-integer cell at (" + str(r_i) + "," + str(c_i) + "): " + repr(cell), file=sys.stderr)
+                    sys.exit(1)
         results.append(result)
     # Print results as JSON
     print("TRANSFORM_RESULT:" + json.dumps(results))
@@ -124,6 +134,29 @@ except Exception as e:
             timed_out = True
 
         latency_ms = (time.time() - start) * 1000
+
+        # Parent-side validation to guard against malformed child output
+        def _valid_transform_results(obj) -> bool:
+            try:
+                if obj is None:
+                    return False
+                if not isinstance(obj, list):
+                    return False
+                for grid in obj:
+                    if not isinstance(grid, list) or not all(isinstance(r, list) for r in grid):
+                        return False
+                    for r in grid:
+                        for v in r:
+                            if not isinstance(v, int):
+                                return False
+                return True
+            except Exception:
+                return False
+
+        if transform_results is not None and not _valid_transform_results(transform_results):
+            err_msg = "Invalid transform result shape or non-integer cell(s) from child process"
+            stderr = (stderr or "") + (("\n" if stderr else "") + err_msg)
+            transform_results = None
 
         if not transform_results and raise_exception:
             raise PythonException(stderr)

@@ -6,6 +6,9 @@ import pickle
 import ast
 import keyword
 import random
+import shutil
+import json
+import hashlib
 from typing import Dict, List, Tuple, Optional
 
 # Try dotenv like the main executables
@@ -283,6 +286,296 @@ def summarize_groups(groups: Dict, max_display: int = 5) -> str:
     return "\n".join(lines)
 
 
+def sanitize_filename(s: str) -> str:
+    """Sanitize a string for safe use as a filename on all platforms.
+    - Keep alphanumeric, dash, underscore
+    - Replace others with underscore
+    - Truncate to 120 characters
+    - Fallback to 'unnamed' if empty after sanitization
+    """
+    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in s)
+    safe = safe[:120]
+    return safe or "unnamed"
+
+
+def load_accuracy_scores(path: str) -> Optional[Dict[str, Dict[str, Tuple[float, float]]]]:
+    """Load challenge->primitive->(train_acc, test_acc) from a pickle if present.
+    Returns None if load fails.
+    """
+    try:
+        import pickle
+        with open(path, "rb") as f:
+            obj = pickle.load(f)
+        # Expect a dict-like mapping: challenge_id -> { primitive_id(str): (train, test) }
+        if isinstance(obj, dict):
+            return obj  # type: ignore[return-value]
+        return None
+    except Exception:
+        return None
+
+
+def classify_primitive_across_challenges(primitive_id: str, scores: Dict[str, Dict[str, Tuple[float, float]]], test_threshold: float = 1.0, train_threshold: float = 1.0) -> Tuple[str, Optional[str]]:
+    """Classify a primitive as 'test', 'train_only', or 'other' and return a representative challenge_id.
+    - Prefers the challenge with highest test accuracy >= test_threshold
+    - Falls back to highest train accuracy >= train_threshold
+    - If none meet thresholds, returns ('other', best_test_or_train_challenge_id_or_None)
+    """
+    best_test: Tuple[float, Optional[str]] = (-1.0, None)
+    best_train: Tuple[float, Optional[str]] = (-1.0, None)
+    for ch_id, prim_map in scores.items():
+        if not isinstance(prim_map, dict):
+            continue
+        if primitive_id not in prim_map:
+            continue
+        try:
+            train_acc, test_acc = prim_map[primitive_id]
+        except Exception:
+            continue
+        if test_acc > best_test[0]:
+            best_test = (test_acc, ch_id)
+        if train_acc > best_train[0]:
+            best_train = (train_acc, ch_id)
+    # Decide classification
+    if best_test[0] >= test_threshold and best_test[1] is not None:
+        return "test", best_test[1]
+    if best_train[0] >= train_threshold and best_train[1] is not None:
+        return "train_only", best_train[1]
+    # Other: return whichever is better (test preferred)
+    if best_test[1] is not None:
+        return "other", best_test[1]
+    if best_train[1] is not None:
+        return "other", best_train[1]
+    return "other", None
+
+
+# --- Cache-based classification helpers (use transforms_cache.pkl directly) ---
+
+def _hash_obj_for_cache(obj: object) -> str:
+    try:
+        s = json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    except Exception:
+        s = str(obj)
+    h = hashlib.sha256(); h.update(s.encode("utf-8", errors="ignore"))
+    return h.hexdigest()
+
+
+def _transform_cache_key_for_cache(*, code: str, grid_lists: list) -> str:
+    h = hashlib.sha256()
+    h.update(code.encode("utf-8", errors="ignore"))
+    h.update(b"|")
+    h.update(_hash_obj_for_cache(grid_lists).encode("utf-8"))
+    return h.hexdigest()
+
+
+def load_transform_cache_dict(path: str) -> Optional[Dict[str, list]]:
+    try:
+        import pickle
+        with open(path, "rb") as f:
+            obj = pickle.load(f)
+        if isinstance(obj, dict):
+            return obj  # type: ignore[return-value]
+        return None
+    except Exception:
+        return None
+
+
+def classify_primitive_via_cache(
+    *,
+    primitive: Primitive,
+    cache: Dict[str, list],
+    test_threshold: float,
+    train_threshold: float,
+) -> Tuple[str, Optional[str]]:
+    """Classify primitive using cached transforms vs ARC data (eval + train).
+    Returns (class, representative_challenge_id or None).
+    """
+    try:
+        from src.data import training_challenges, eval_challenges
+    except Exception:
+        training_challenges = {}
+        eval_challenges = {}
+
+    best_test: Tuple[float, Optional[str]] = (-1.0, None)
+    best_train: Tuple[float, Optional[str]] = (-1.0, None)
+
+    # Evaluate on evaluation set (solutions) via cache
+    for ch_id, ch in getattr(eval_challenges, 'items', lambda: [])():
+        grid_lists = [ex.input for ex in ch.test]
+        if not grid_lists:
+            continue
+        key = _transform_cache_key_for_cache(code=primitive.python_code_str, grid_lists=grid_lists)
+        outs = cache.get(key)
+        if not outs:
+            continue
+        try:
+            correct = 0
+            total = len(ch.test)
+            for i, ex in enumerate(ch.test):
+                if i < len(outs) and outs[i] == ex.output:
+                    correct += 1
+            acc = correct / total if total else 0.0
+        except Exception:
+            acc = 0.0
+        if acc > best_test[0]:
+            best_test = (acc, ch_id)
+
+    # Evaluate on training set via cache (to detect train-only)
+    for ch_id, ch in getattr(training_challenges, 'items', lambda: [])():
+        grid_lists = [ex.input for ex in ch.train]
+        if not grid_lists:
+            continue
+        key = _transform_cache_key_for_cache(code=primitive.python_code_str, grid_lists=grid_lists)
+        outs = cache.get(key)
+        if not outs:
+            continue
+        try:
+            correct = 0
+            total = len(ch.train)
+            for i, ex in enumerate(ch.train):
+                if i < len(outs) and outs[i] == ex.output:
+                    correct += 1
+            acc = correct / total if total else 0.0
+        except Exception:
+            acc = 0.0
+        if acc > best_train[0]:
+            best_train = (acc, ch_id)
+
+    if best_test[0] >= test_threshold and best_test[1] is not None:
+        return "test", best_test[1]
+    if best_train[0] >= train_threshold and best_train[1] is not None:
+        return "train_only", best_train[1]
+    if best_test[1] is not None:
+        return "other", best_test[1]
+    if best_train[1] is not None:
+        return "other", best_train[1]
+    return "other", None
+
+
+def write_behavioral_dupes(
+    beh_groups: Dict[Tuple[str, ...], List[Primitive]],
+    base_output_dir: str,
+    *,
+    clear_output: bool,
+    scores: Optional[Dict[str, Dict[str, Tuple[float, float]]]] = None,
+    test_threshold: float = 1.0,
+    train_threshold: float = 1.0,
+    cache: Optional[Dict[str, list]] = None,
+) -> None:
+    """Write behavioral duplicate groups to disk under base_output_dir.
+
+    Layout:
+      base_output_dir/
+        <group_name>/
+          test_correct/
+            <primitive_id>.py
+          train_only/
+            <primitive_id>.py
+          other/
+            <primitive_id>.py
+
+    Group naming:
+      - If accuracy scores are provided, attempt to pick a representative challenge id
+        based on primitives that pass test_threshold. If a unique representative is
+        not found, uses 'multi'. Otherwise default to sequential naming.
+
+    Groups are ordered by size (desc), then by primitive IDs for determinism.
+    """
+    output_dir = os.path.join(REPO_ROOT, base_output_dir)
+    if clear_output and os.path.exists(output_dir):
+        shutil.rmtree(output_dir)
+    os.makedirs(output_dir, exist_ok=True)
+
+    groups_list: List[List[Primitive]] = list(beh_groups.values())
+
+    def group_sort_key(group: List[Primitive]):
+        ids_sorted = sorted(p.id for p in group)
+        return (-len(group), ids_sorted)
+
+    groups_list.sort(key=group_sort_key)
+
+    total_files = 0
+    single_named = 0
+    multi_named = 0
+
+    for i, group in enumerate(groups_list, start=1):
+        # Determine representative challenge id for naming (if scores available)
+        group_name = f"group-{i:03d}"
+        rep_ch: Optional[str] = None
+        if scores is not None or cache is not None:
+            # Collect best challenge per primitive with classification
+            test_choices: List[str] = []
+            fallback_choices: List[str] = []
+            for p in group:
+                if scores is not None:
+                    cls, ch = classify_primitive_across_challenges(p.id, scores, test_threshold=test_threshold, train_threshold=train_threshold)
+                else:
+                    cls, ch = classify_primitive_via_cache(primitive=p, cache=cache or {}, test_threshold=test_threshold, train_threshold=train_threshold)
+                if cls == "test" and ch:
+                    test_choices.append(ch)
+                elif ch:
+                    fallback_choices.append(ch)
+            # Use most common test_choice if unique; else fall back to most common overall
+            from collections import Counter
+            chosen: Optional[str] = None
+            if test_choices:
+                c = Counter(test_choices)
+                most_common = c.most_common()
+                if most_common:
+                    # If clear winner
+                    if len(most_common) == 1 or (len(most_common) > 1 and most_common[0][1] > most_common[1][1]):
+                        chosen = most_common[0][0]
+            if not chosen and (test_choices or fallback_choices):
+                c = Counter(test_choices + fallback_choices)
+                most_common = c.most_common()
+                if most_common:
+                    if len(most_common) == 1 or (len(most_common) > 1 and most_common[0][1] > most_common[1][1]):
+                        chosen = most_common[0][0]
+            rep_ch = chosen
+            if rep_ch:
+                group_name = f"{sanitize_filename(rep_ch)}_group-{i:03d}"
+                single_named += 1
+            else:
+                group_name = f"multi_group-{i:03d}"
+                multi_named += 1
+
+        group_dir = os.path.join(output_dir, group_name)
+        os.makedirs(group_dir, exist_ok=True)
+
+        # Prepare subfolders if we have scores or cache-based classification
+        test_dir = os.path.join(group_dir, "test_correct")
+        train_only_dir = os.path.join(group_dir, "train_only")
+        other_dir = os.path.join(group_dir, "other")
+        if scores is not None or cache is not None:
+            os.makedirs(test_dir, exist_ok=True)
+            os.makedirs(train_only_dir, exist_ok=True)
+            os.makedirs(other_dir, exist_ok=True)
+
+        for p in sorted(group, key=lambda x: sanitize_filename(x.id)):
+            fname = sanitize_filename(p.id) + ".py"
+            # Decide target path based on classification if scores or cache available
+            if scores is not None or cache is not None:
+                if scores is not None:
+                    cls, _ = classify_primitive_across_challenges(p.id, scores, test_threshold=test_threshold, train_threshold=train_threshold)
+                else:
+                    cls, _ = classify_primitive_via_cache(primitive=p, cache=cache or {}, test_threshold=test_threshold, train_threshold=train_threshold)
+                if cls == "test":
+                    path = os.path.join(test_dir, fname)
+                elif cls == "train_only":
+                    path = os.path.join(train_only_dir, fname)
+                else:
+                    path = os.path.join(other_dir, fname)
+            else:
+                path = os.path.join(group_dir, fname)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(p.python_code_str or "")
+            total_files += 1
+
+    if scores is not None:
+        print(f"Wrote {len(groups_list)} behavioral duplicate groups with {total_files} files to {output_dir} (named: {single_named} single-challenge, {multi_named} multi)")
+    else:
+        print(f"Wrote {len(groups_list)} behavioral duplicate groups with {total_files} files to {output_dir}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Audit the ARC-AGI library for size and duplicates.")
     parser.add_argument("-p", "--path", type=str, default=os.getenv("SUBMISSION_LIBRARY_PATH", "saved_library_1000.pkl"), help="Path to pickled Library (default: SUBMISSION_LIBRARY_PATH or saved_library_1000.pkl)")
@@ -296,6 +589,14 @@ def main() -> None:
     parser.add_argument("--arc-max-per-task", type=int, default=3, help="Max inputs per ARC v1 training task (0 => use all)")
     parser.add_argument("--incremental", action="store_true", help="Use incremental behavioral dedupe with early exit for singletons (faster)")
     parser.add_argument("--timeout", type=int, default=5, help="Timeout per transform run (seconds)")
+    # Output controls for behavioral duplicates
+    parser.add_argument("--output-dupes-dir", type=str, default="dupes", help="Directory to write behavioral duplicate groups to (default: ./dupes)")
+    parser.add_argument("--no-write-behavioral-dupes", action="store_true", help="Do not write behavioral duplicate groups to files")
+    parser.add_argument("--preserve-output", action="store_true", help="Do not clear the output dupes directory before writing")
+    # Accuracy scores for group naming and per-file classification
+    parser.add_argument("--scores-path", type=str, default="challenge_primitive_accuracy_scores.pkl", help="Path to challenge->primitive->(train_acc, test_acc) pickle (default: challenge_primitive_accuracy_scores.pkl if present)")
+    parser.add_argument("--test-threshold", type=float, default=1.0, help="Threshold to consider a primitive test-correct (default: 1.0)")
+    parser.add_argument("--train-threshold", type=float, default=1.0, help="Threshold to consider a primitive train-correct (default: 1.0)")
     args = parser.parse_args()
 
     lib = load_library(args.path)
@@ -313,7 +614,7 @@ def main() -> None:
         k0, v0 = next(iter(norm_dupes.items()))
         print("\nExample duplicate group (showing up to first 5 IDs):")
         print([p.id for p in v0[:5]])
-        return
+        # Do not return; proceed to behavioral dedupe to optionally write dupes
 
     print("\nNo normalized-code duplicates found. Proceeding to behavioral dedupe...")
     if args.behavior_source == "arc_v1":
@@ -339,6 +640,37 @@ def main() -> None:
         k0, v0 = next(iter(beh_groups.items()))
         print("\nExample behavioral duplicate group (showing up to first 5 IDs):")
         print([p.id for p in v0[:5]])
+        # Write groups by default unless disabled
+        if not args.no_write_behavioral_dupes:
+            # Load accuracy scores if available for better naming/classification
+            scores_obj: Optional[Dict[str, Dict[str, Tuple[float, float]]]] = None
+            scores_path = os.path.join(REPO_ROOT, args.scores_path) if not os.path.isabs(args.scores_path) else args.scores_path
+            if os.path.exists(scores_path):
+                scores_obj = load_accuracy_scores(scores_path)
+                if scores_obj is None:
+                    print(f"Warning: failed to load scores from {scores_path}; proceeding without challenge-based naming")
+            else:
+                # silently proceed without
+                scores_obj = None
+            # Load transform cache as a fallback for classification if scores are missing
+            cache_obj = None
+            if scores_obj is None:
+                cache_path = os.path.join(REPO_ROOT, "transforms_cache.pkl")
+                if os.path.exists(cache_path):
+                    cache_obj = load_transform_cache_dict(cache_path)
+                    if cache_obj is None:
+                        print(f"Warning: failed to load transform cache from {cache_path}")
+            write_behavioral_dupes(
+                beh_groups,
+                args.output_dupes_dir,
+                clear_output=not args.preserve_output,
+                scores=scores_obj,
+                test_threshold=args.test_threshold,
+                train_threshold=args.train_threshold,
+                cache=cache_obj,
+            )
+        else:
+            print("Skipping writing behavioral duplicate groups due to --no-write-behavioral-dupes")
     else:
         print("\nNo behavioral duplicates found on the probe set.")
         print("Library appears reasonably unique. No action needed.")

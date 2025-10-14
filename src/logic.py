@@ -23,7 +23,6 @@ import chex
 import numpy as onp
 
 from src import PLOT, logfire
-from src.data import training_challenges
 from src.models import (
     GRID,
     Attempt,
@@ -54,9 +53,26 @@ from src.prompts.examples import (
 from src.render_legacy import grid_to_base64_png_oai_content
 from src.reps import array_to_str, grid_diffs_to_ascii, grid_to_ascii
 from src.run_python import run_python_transform_sync
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+
+from src.perf import perf_add, perf_get, perf_clear
+
+# Track top two attempts chosen per challenge for later export
+_TOP_TWO_ATTEMPTS: dict[str, list["Attempt"]] = {}
+
+def set_top_two_attempts_for(challenge_id: str, attempts: list["Attempt"]) -> None:
+    try:
+        if attempts is None:
+            return
+        _TOP_TWO_ATTEMPTS[challenge_id] = attempts[:2]
+    except Exception:
+        pass
+
+def get_top_two_attempts_for(challenge_id: str) -> list["Attempt"] | None:
+    return _TOP_TWO_ATTEMPTS.get(challenge_id)
 
 # ---- Transform result cache (opt-in) ----
-_TRANSFORM_CACHE_ENABLED = os.environ.get("SUBMISSION_TRANSFORM_CACHE", "0") == "1"
+_TRANSFORM_CACHE_ENABLED = os.environ.get("SUBMISSION_TRANSFORM_CACHE", "1") == "1"
 _TRANSFORM_CACHE_PATH = os.environ.get("TRANSFORM_CACHE_PATH", "transforms_cache.pkl")
 _TRANSFORM_CACHE_CLEAR = os.environ.get("SUBMISSION_TRANSFORM_CACHE_CLEAR", "0") == "1"
 _transform_cache: dict[str, list] = {}
@@ -124,6 +140,35 @@ def run_python_transform_sync_cached(*, code: str, grid_lists: list, timeout: in
     except Exception:
         pass
     return out
+
+# ---- Bounded, non-blocking wrappers for synchronous transform execution ----
+# Default to 4 concurrent threads unless overridden
+try:
+    _TRANSFORM_EXEC_CONCURRENCY = max(1, int(os.environ.get("SUBMISSION_TRANSFORM_CONCURRENCY", "4")))
+except Exception:
+    _TRANSFORM_EXEC_CONCURRENCY = 4
+
+_transform_exec_sem = asyncio.Semaphore(_TRANSFORM_EXEC_CONCURRENCY)
+
+async def run_transform_cached_async(*, code: str, grid_lists: list, timeout: int, raise_exception: bool):
+    async with _transform_exec_sem:
+        return await asyncio.to_thread(
+            run_python_transform_sync_cached,
+            code=code,
+            grid_lists=grid_lists,
+            timeout=timeout,
+            raise_exception=raise_exception,
+        )
+
+async def run_transform_sync_async(*, code: str, grid_lists: list, timeout: int, raise_exception: bool):
+    async with _transform_exec_sem:
+        return await asyncio.to_thread(
+            run_python_transform_sync,
+            code=code,
+            grid_lists=grid_lists,
+            timeout=timeout,
+            raise_exception=raise_exception,
+        )
 
 # auto-load cache on import if enabled
 try:
@@ -259,6 +304,8 @@ def challenge_to_messages(
         {"role": "system", "content": [{"type": "text", "text": prompt_map[prompt]}]}
     ]
     if add_examples:
+        # Lazy import to avoid circular dependency during module import time.
+        from src.data import training_challenges
         if grid_change_shape:
             # messages.extend(GRID_CHANGE_PROMPT_EXAMPLE_1)
             example_1_grid_change_prompt = content_from_challenge(
@@ -429,6 +476,63 @@ def percent_right_from_grids(train_output: GRID, train_attempt: GRID) -> float:
         logfire.debug(f"in percent right from grids: {e=}")
         return 0
 
+# ---- Optional process-backed scoring for CPU-heavy loops ----
+try:
+    _SCORE_USE_PROCESS = os.environ.get("SUBMISSION_SCORE_PROCESS", "0") == "1"
+except Exception:
+    _SCORE_USE_PROCESS = False
+
+try:
+    _SCORE_WORKERS = max(1, int(os.environ.get("SUBMISSION_SCORE_WORKERS", "4")))
+except Exception:
+    _SCORE_WORKERS = 4
+
+# Separate thread-pool sizing for scoring (defaults to 4)
+try:
+    _SCORE_THREADS = max(1, int(os.environ.get("SUBMISSION_SCORE_THREADS", "4")))
+except Exception:
+    _SCORE_THREADS = 4
+
+_score_executor: ProcessPoolExecutor | None = None
+_score_thread_executor: ThreadPoolExecutor | None = None
+_score_sem = asyncio.Semaphore(_SCORE_THREADS)
+
+def _get_score_executor() -> ProcessPoolExecutor:
+    global _score_executor
+    if _score_executor is None:
+        # Create lazily to avoid Windows spawn overhead unless requested
+        _score_executor = ProcessPoolExecutor(max_workers=_SCORE_WORKERS)
+    return _score_executor
+
+def _get_score_thread_executor() -> ThreadPoolExecutor:
+    global _score_thread_executor
+    if _score_thread_executor is None:
+        _score_thread_executor = ThreadPoolExecutor(max_workers=_SCORE_THREADS)
+    return _score_thread_executor
+
+def _compute_primitive_score_sync(challenge_train: list, transformed_grids: list) -> tuple[float, float]:
+    # Compute num_correct and average percent_right across training examples
+    num_correct = 0
+    avg_right_lst: list[float] = []
+    for idx, train in enumerate(challenge_train):
+        if train.output == transformed_grids[idx]:
+            num_correct += 1
+        train_accuracy = percent_right_from_grids(train.output, transformed_grids[idx])
+        avg_right_lst.append(train_accuracy)
+    secondary_score = sum(avg_right_lst) / len(avg_right_lst) if avg_right_lst else 0.0
+    return float(num_correct), float(secondary_score)
+
+async def compute_primitive_score_async(challenge_train: list, transformed_grids: list) -> tuple[float, float]:
+    if not transformed_grids:
+        return 0.0, 0.0
+    if _SCORE_USE_PROCESS:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_get_score_executor(), _compute_primitive_score_sync, challenge_train, transformed_grids)
+    # Default to bounded thread offload; avoids event-loop blocking and caps concurrency to 4 by default
+    loop = asyncio.get_running_loop()
+    async with _score_sem:
+        return await loop.run_in_executor(_get_score_thread_executor(), _compute_primitive_score_sync, challenge_train, transformed_grids)
+
 
 def get_best_primitives(
     library: Library, challenge: Challenge, k_top: int
@@ -439,14 +543,17 @@ def get_best_primitives(
     example_correct: list[Primitive] = []
     secondary_score_lst: list[Primitive] = []
     for primitive in library.primitives:
+        t0 = time.perf_counter()
         transform_results = run_python_transform_sync_cached(
             code=primitive.python_code_str,
             grid_lists=[deepcopy(train.input) for train in challenge.train],
             timeout=int(os.environ.get("SUBMISSION_TRANSFORM_TIMEOUT", "5")),
             raise_exception=False, # since we are applying all primitives to all tasks
         )
+        perf_add(challenge.id, "scoring_transform_ms", (time.perf_counter() - t0) * 1000.0)
         if transform_results.transform_results:
             transformed_grids = transform_results.transform_results
+            t1 = time.perf_counter()
             num_correct = 0
             avg_right_lst = []
             for idx, train in enumerate(challenge.train):
@@ -454,6 +561,7 @@ def get_best_primitives(
                     num_correct += 1
                 train_accuracy = percent_right_from_grids(train.output, transformed_grids[idx])
                 avg_right_lst.append(train_accuracy)
+            perf_add(challenge.id, "scoring_compute_ms", (time.perf_counter() - t1) * 1000.0)
             example_correct.append(num_correct)
             secondary_score_lst.append(sum(avg_right_lst) / len(avg_right_lst))
         else:
@@ -745,24 +853,23 @@ async def evaluate_primitive_weighed_async(
             return challenge_primitive_scores[challenge.id][primitive.id]
 
     try:
-        transform_results = run_python_transform_sync_cached(
+        t0 = time.perf_counter()
+        transform_results = await run_transform_cached_async(
             code=primitive.python_code_str,
             grid_lists=[deepcopy(train.input) for train in challenge.train],
             timeout=int(os.environ.get("SUBMISSION_TRANSFORM_TIMEOUT", "5")),
             raise_exception=False,  # since we are applying all primitives to all tasks
         )
+        perf_add(challenge.id, "scoring_transform_ms", (time.perf_counter() - t0) * 1000.0)
         if transform_results.transform_results:
             transformed_grids = transform_results.transform_results
-            num_correct = 0
-            avg_right_lst = []
-            for idx, train in enumerate(challenge.train):
-                if train.output == transformed_grids[idx]:
-                    num_correct += 1
-                train_accuracy = percent_right_from_grids(train.output, transformed_grids[idx])
-                avg_right_lst.append(train_accuracy)
-            secondary_score = sum(avg_right_lst) / len(avg_right_lst)
-            challenge_primitive_scores[challenge.id][primitive.id] = (float(num_correct), secondary_score)
-            return float(num_correct), secondary_score
+            t1 = time.perf_counter()
+            num_correct, secondary_score = await compute_primitive_score_async(challenge.train, transformed_grids)
+            perf_add(challenge.id, "scoring_compute_ms", (time.perf_counter() - t1) * 1000.0)
+            if challenge_primitive_scores is not None:
+                challenge_primitive_scores.setdefault(challenge.id, {})
+                challenge_primitive_scores[challenge.id][primitive.id] = (float(num_correct), float(secondary_score))
+            return float(num_correct), float(secondary_score)
         else:
             return 0.0, 0.0
     except Exception as e:
@@ -1084,6 +1191,7 @@ async def run_tree(
     key: chex.PRNGKey = None,
     challenge_primitive_lpn_scores: dict[str, dict[str, float]] = None,
     challenge_primitive_accuracy_scores: dict[str, dict[str, tuple[float, float]]] = None,
+    on_llm_dispatch: T.Callable[[], None] | None = None,
 ) -> list[Attempt]:
     assert not(use_primitives_weighed_by_score and lpn_model), "Cannot use both use_primitives_weighed_by_score and lpn_model"
 
@@ -1117,20 +1225,41 @@ async def run_tree(
     else:
         primitives = get_best_primitives(library=library, challenge=challenge, k_top=top_k)
     if primitives:
-        print(f"[{challenge.id}] Found primitives: {primitives}")
-        logfire.debug(f"[{challenge.id}] Found primitives: {primitives}")
+        def _summ(p):
+            try:
+                code = getattr(p, "python_code_str", "") or ""
+                short = (code[:20] + "...") if len(code) > 20 else code
+                return {"id": getattr(p, "id", "?"), "code": short}
+            except Exception:
+                return {"id": getattr(p, "id", "?"), "code": "<unavailable>"}
+        _display = [_summ(p) for p in primitives]
+        print(f"[{challenge.id}] Found primitives: {_display}")
+        logfire.debug(f"[{challenge.id}] Found primitives: {_display}")
     else:
         primitives = None
 
-    # To prevent rate limiting, we sleep for a random amount of time between 0 and 10 seconds
-    await asyncio.sleep(random.random() * 10)
+    rate_delay_env = os.environ.get("SUBMISSION_RATE_DELAY_MAX_SECONDS")
+    try:
+        rate_delay_max = max(0.0, float(rate_delay_env)) if rate_delay_env is not None else 0.0
+    except Exception:
+        rate_delay_max = 0.0
+    if rate_delay_max > 0.0:
+        await asyncio.sleep(random.random() * rate_delay_max)
 
     all_attempts: list[Attempt] = []
+    dispatch_signalled = False
     for root_attempt_config in tree:
         start_level = time.time()
         message = f"[{challenge.id}] running root node with {root_attempt_config.attempts} attempts."
         print(message)
         logfire.debug(message)
+        # Signal once just before we begin LLM calls for this challenge
+        if on_llm_dispatch and not dispatch_signalled:
+            try:
+                on_llm_dispatch()
+            except Exception:
+                pass
+            dispatch_signalled = True
         local_attempts = await Attempt.run_many(
             challenge=challenge,
             attempt_config=root_attempt_config,
@@ -1200,13 +1329,13 @@ async def can_primitive_solve_challenge_async(
     challenge_primitive_scores: dict[str, dict[float]] = None,
 ) -> bool:
     try:
-        transform_train_results = run_python_transform_sync(
+        transform_train_results = await run_transform_sync_async(
             code=primitive.python_code_str,
             grid_lists=[deepcopy(train.input) for train in challenge.train],
             timeout=5,
             raise_exception=False, # since we are applying all primitives to all tasks
         )
-        transform_eval_results = run_python_transform_sync(
+        transform_eval_results = await run_transform_sync_async(
             code=primitive.python_code_str,
             grid_lists=[deepcopy(test.input) for test in challenge.test],
             timeout=5,
@@ -1264,6 +1393,7 @@ async def solve_challenge(
     challenge_primitive_lpn_scores: dict[str, dict[str, float]] = None,
     challenge_primitive_accuracy_scores: dict[str, dict[str, tuple[float, float]]] = None,
     aggregate_cost_in_cents: list[float] = [ 0.0 ],
+    on_llm_dispatch: T.Callable[[], None] | None = None,
 ) -> tuple[list[GRID], list[GRID]]:
     if url:
         env_vars = {
@@ -1310,8 +1440,16 @@ async def solve_challenge(
         key=key,
         challenge_primitive_lpn_scores=challenge_primitive_lpn_scores,
         challenge_primitive_accuracy_scores=challenge_primitive_accuracy_scores,
+        on_llm_dispatch=on_llm_dispatch,
     )
     attempts = dedup_attempts(attempts)
+
+    # Report perf metrics
+    _perf = perf_get(challenge.id)
+    if _perf:
+        print(f"[{challenge.id}] perf: scoring_transform_ms={_perf.get('scoring_transform_ms', 0):.1f}, scoring_compute_ms={_perf.get('scoring_compute_ms', 0):.1f}, llm_ms={_perf.get('llm_ms', 0):.1f}, post_llm_transform_ms={_perf.get('post_llm_transform_ms', 0):.1f}")
+        logfire.debug(f"[{challenge.id}] perf: scoring_transform_ms={_perf.get('scoring_transform_ms', 0):.1f}, scoring_compute_ms={_perf.get('scoring_compute_ms', 0):.1f}, llm_ms={_perf.get('llm_ms', 0):.1f}, post_llm_transform_ms={_perf.get('post_llm_transform_ms', 0):.1f}")
+        perf_clear(challenge.id)
 
     # get the number and cost from all of these attempts
     total_cost_cents = sum(a.cost_cents for a in attempts)
@@ -1370,6 +1508,7 @@ async def solve_challenge_with_accuracy(
     challenge_primitive_lpn_scores: dict[str, dict[str, float]] = None,
     challenge_primitive_accuracy_scores: dict[str, dict[str, tuple[float, float]]] = None,
     aggregate_cost_in_cents: list[float] = [ 0.0 ],
+    on_llm_dispatch: T.Callable[[], None] | None = None,
 ) -> list[tuple[list[GRID], float]]:
     run_id = f"run_{random_string(10)}"
     started_at_ms = time.time() * 1000
@@ -1386,6 +1525,7 @@ async def solve_challenge_with_accuracy(
         key=key,
         challenge_primitive_lpn_scores=challenge_primitive_lpn_scores,
         challenge_primitive_accuracy_scores=challenge_primitive_accuracy_scores,
+        on_llm_dispatch=on_llm_dispatch,
     )
     attempts = dedup_attempts(attempts)
 
@@ -1409,6 +1549,11 @@ async def solve_challenge_with_accuracy(
     top_two = get_best_attempts(
         attempts=attempts, k_top=2, unique_code=True, unique_output=True
     )
+    # record for export later
+    try:
+        set_top_two_attempts_for(challenge.id, top_two)
+    except Exception:
+        pass
     
     if len(top_two) == 0:
         # TODO: LLM call failed. Return empty solutions

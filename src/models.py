@@ -25,6 +25,7 @@ from tqdm import tqdm
 from src import USE_GRID_URL, logfire
 from src.db import init_db_pool, pool
 from src.prompts import prompts
+from src.perf import perf_add
 
 DOUBLE_ENTER = "\n\n"
 
@@ -42,6 +43,8 @@ class Model(str, Enum):
     gpt_4o = "gpt-4o"
     gpt_4o_mini = "gpt-4o-mini"
     gpt_5 = "gpt-5"
+    gpt_5_mini = "gpt-5-mini"
+    gpt_5_nano = "gpt-5-nano"
     o1_mini = "o1-mini"
     o3_mini = "o3-mini"
     o1_preview = "o1-preview"
@@ -54,6 +57,8 @@ class Model(str, Enum):
     openrouter_o1 = "openai/o1-preview"
     openrouter_o1_mini = "openai/o1-mini-preview"
     openrouter_grok_4_fast_free = "x-ai/grok-4-fast:free"
+    deepseek_v3_1 = "deepseek/deepseek-chat-v3.1:free"
+    gpt_oss_120b_free = "openai/gpt-oss-120b:free"
     # gemini_1_5_pro = "gemini-1.5-pro"
     gemini_1_5_pro = "gemini-1.5-pro-002"
     deep_seek_r1 = "deepseek-reasoner"
@@ -94,6 +99,18 @@ model_price_map: dict[Model, ModelPrice] = {
         cache_read_per_million_cents=12.5,
         input_tokens_per_million_cents=125,
         output_tokens_per_million_cents=1_000,
+    ),
+    Model.gpt_5_mini: ModelPrice(
+        cache_create_per_million_cents=25,
+        cache_read_per_million_cents=2.5,
+        input_tokens_per_million_cents=25,
+        output_tokens_per_million_cents=200,
+    ),
+    Model.gpt_5_nano: ModelPrice(
+        cache_create_per_million_cents=5,
+        cache_read_per_million_cents=0.5,
+        input_tokens_per_million_cents=5,
+        output_tokens_per_million_cents=40,
     ),
     Model.gpt_4o_mini: ModelPrice(
         cache_create_per_million_cents=15,
@@ -137,6 +154,12 @@ model_price_map: dict[Model, ModelPrice] = {
         input_tokens_per_million_cents=20,  # input $0.20 / 1M tokens
         output_tokens_per_million_cents=50, # output $0.50 / 1M tokens
     ),
+    Model.deepseek_v3_1: ModelPrice(
+        cache_create_per_million_cents=5,
+        cache_read_per_million_cents=5,
+        input_tokens_per_million_cents=27,   # input $0.27 / 1M tokens
+        output_tokens_per_million_cents=100, # output $1.00 / 1M tokens
+    ),
     Model.gemini_1_5_pro: ModelPrice(
         cache_create_per_million_cents=450,
         cache_read_per_million_cents=0.3125,
@@ -178,6 +201,12 @@ model_price_map: dict[Model, ModelPrice] = {
         cache_read_per_million_cents=5,
         input_tokens_per_million_cents=20,  # input $0.20 / 1M tokens
         output_tokens_per_million_cents=50, # output $0.50 / 1M tokens
+    ),
+    Model.gpt_oss_120b_free: ModelPrice(  # free route; record as zero cost
+        cache_create_per_million_cents=0,
+        cache_read_per_million_cents=0,
+        input_tokens_per_million_cents=0,
+        output_tokens_per_million_cents=0,
     ),
 }
 
@@ -407,9 +436,17 @@ class Attempt(BaseModel):
     @computed_field
     @property
     def cost_cents(self) -> float:
-        return self.cost_cents_from_usage(
+        base = self.cost_cents_from_usage(
             model=self.config.llm_config.model, usage=self.usage
         )
+        # Apply Flex 50% discount if enabled globally via env var
+        try:
+            tier = os.environ.get("OPENAI_SERVICE_TIER", "").strip().lower()
+            if tier == "flex":
+                base *= 0.5
+        except Exception:
+            pass
+        return base
 
     @staticmethod
     async def llm_response_to_result_grids(
@@ -593,12 +630,17 @@ class Attempt(BaseModel):
                 logfire.debug(f"[{challenge.id}] Failed manual response path: {e}")
 
         try:
+            t_llm_start = time.time()
             next_messages = await get_next_messages(
                 messages=deepcopy(messages),
                 model=attempt_config.llm_config.model,
                 temperature=attempt_config.llm_config.temperature,
                 n_times=n_times,
             )
+            try:
+                perf_add(challenge.id, "llm_ms", (time.time() - t_llm_start) * 1000.0)
+            except Exception:
+                pass
             if not next_messages:
                 print(f"[{challenge.id}] no next messages")
                 # Save the prompt for manual retry
@@ -688,6 +730,10 @@ class Attempt(BaseModel):
                 return []
         logfire.debug(f"[{challenge.id}] grids took {time.time() - start_grid} secs")
         print(f"[{challenge.id}] grids took {time.time() - start_grid} secs")
+        try:
+            perf_add(challenge.id, "post_llm_transform_ms", (time.time() - start_grid) * 1000.0)
+        except Exception:
+            pass
         attempts: list[Attempt] = []
         for next_message, grid_list in zip(next_messages, grid_lists, strict=True):
             if grid_list:

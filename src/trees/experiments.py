@@ -961,11 +961,112 @@ gpt_5_dreamcoder_tree: list[RootAttemptConfig] = [
         fixes=[],
     ),
 ]
+
+# Variants using gpt-5-mini and gpt-5-nano
+gpt_5_mini_dreamcoder_tree: list[RootAttemptConfig] = [
+    RootAttemptConfig(
+        attempts=1,
+        llm_config=LLMConfig(
+            model=Model.gpt_5_mini,
+            temperature=1.0,
+        ),
+        prompt_config=RootPromptConfig(
+            base_prompt=Prompt.REASONING,
+            use_examples=True,
+            use_diffs=True,
+            use_images=True,
+            use_ascii=True,
+            use_array=True,
+            use_image=True,
+        ),
+        fixes=[],
+    ),
+]
+
+gpt_5_nano_dreamcoder_tree: list[RootAttemptConfig] = [
+    RootAttemptConfig(
+        attempts=1,
+        llm_config=LLMConfig(
+            model=Model.gpt_5_nano,
+            temperature=1.0,
+        ),
+        prompt_config=RootPromptConfig(
+            base_prompt=Prompt.REASONING,
+            use_examples=True,
+            use_diffs=True,
+            use_images=True,
+            use_ascii=True,
+            use_array=True,
+            use_image=True,
+        ),
+        fixes=[],
+    ),
+]
 grok_dreamcoder_tree: list[RootAttemptConfig] = [
     RootAttemptConfig(
         attempts=5,
         llm_config=LLMConfig(
-            model=Model.openrouter_grok_4_fast_free,
+            model=Model.grok_4,
+            temperature=0.95,
+        ),
+        prompt_config=RootPromptConfig(
+            base_prompt=Prompt.REASONING,
+            use_examples=True,
+            use_diffs=True,
+            use_images=True,
+            use_ascii=True,
+            use_array=True,
+            use_image=True,
+        ),
+        fixes=[],
+    ),
+]
+
+grokfast_dreamcoder_tree: list[RootAttemptConfig] = [
+    RootAttemptConfig(
+        attempts=5,
+        llm_config=LLMConfig(
+            model=Model.grok_4_fast_reasoning,
+            temperature=0.95,
+        ),
+        prompt_config=RootPromptConfig(
+            base_prompt=Prompt.REASONING,
+            use_examples=True,
+            use_diffs=True,
+            use_images=True,
+            use_ascii=True,
+            use_array=True,
+            use_image=True,
+        ),
+        fixes=[],
+    ),
+]
+
+deepseek_v3_1: list[RootAttemptConfig] = [
+    RootAttemptConfig(
+        attempts=5,
+        llm_config=LLMConfig(
+            model=Model.deepseek_v3_1,
+            temperature=0.95,
+        ),
+        prompt_config=RootPromptConfig(
+            base_prompt=Prompt.REASONING,
+            use_examples=True,
+            use_diffs=True,
+            use_images=True,
+            use_ascii=True,
+            use_array=True,
+            use_image=True,
+        ),
+        fixes=[],
+    ),
+]
+
+oss_120b: list[RootAttemptConfig] = [
+    RootAttemptConfig(
+        attempts=5,
+        llm_config=LLMConfig(
+            model=Model.gpt_oss_120b_free,
             temperature=0.95,
         ),
         prompt_config=RootPromptConfig(

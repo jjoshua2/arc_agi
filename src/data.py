@@ -40,14 +40,16 @@ def build_challenges(
 def build_challenges_v2(
     challenges_path: Path
 ) -> dict[str, Challenge]:
-    # Read every file in the directory and use the file_path prefix as the key in the challenges_j dictionary
-    challenges_j = {}
-    for file_path in sorted(challenges_path.iterdir()):
-        if file_path.is_file() and file_path.suffix == ".json":
-            with open(file_path) as f:
+    # Recursively read every *.json file under the directory tree and
+    # use the file name (stem) as the challenge id key in the dictionary
+    challenges_j: dict[str, dict] = {}
+    for file_path in sorted(challenges_path.rglob("*.json")):
+        if file_path.is_file():
+            with open(file_path, "r", encoding="utf-8") as f:
                 file_challenge = json.load(f)
-                # Use the file name without suffix as the key
-                key = file_path.stem
+                key = file_path.stem  # e.g., InsideOutside1
+                # NOTE: if stem collisions ever occur across subfolders, we can
+                # switch to a path-derived key (e.g., subdir_stem) instead.
                 challenges_j[key] = file_challenge
                 challenges_j[key]["id"] = key
     return ChallengeAdapter.validate_python(challenges_j)

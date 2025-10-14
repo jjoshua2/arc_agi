@@ -445,6 +445,11 @@ async def get_next_message_openai(
     extra_params = {}
     if model not in [Model.o3_mini, Model.o1_mini, Model.o1_preview]:
         extra_params["temperature"] = temperature
+    # Explicit reasoning effort for GPT‑5 family; overridable via OPENAI_REASONING_EFFORT
+    if model in [Model.gpt_5, Model.gpt_5_mini, Model.gpt_5_nano]:
+        extra_params["extra_body"] = {"reasoning_effort": os.environ.get("OPENAI_REASONING_EFFORT", "high")}
+    # Add Flex tier if globally requested via env var
+    service_tier = os.environ.get("OPENAI_SERVICE_TIER")
     while True:
         try:
             request_id = random_string()
@@ -453,9 +458,10 @@ async def get_next_message_openai(
             print(f"[{request_id}] calling openai with model {model.value}")
             message = await openai_client.chat.completions.create(
                 **extra_params,
-                max_completion_tokens=16384,
+                #max_completion_tokens=16384,
                 messages=messages,
                 model=model.value,
+                **({"service_tier": service_tier} if service_tier else {}),
             )
             took_ms = (time.time() - start) * 1000
             cached_tokens = message.usage.prompt_tokens_details.cached_tokens
@@ -686,6 +692,8 @@ async def get_next_messages(
         Model.gpt_4o,
         Model.gpt_4o_mini,
         Model.gpt_5,
+        Model.gpt_5_mini,
+        Model.gpt_5_nano,
         Model.o1_mini,
         Model.o1_preview,
         Model.o3_mini,
@@ -776,7 +784,7 @@ async def get_next_messages(
             raise ValueError(f"Invalid model: {model}")
         # filter out the Nones
         return [m for m in n_messages if m]
-    elif model == Model.openrouter_grok_4_fast_free:
+    elif model in [Model.openrouter_grok_4_fast_free, Model.deepseek_v3_1, Model.gpt_oss_120b_free]:
         openrouter_client = AsyncOpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=os.environ["OPENROUTER_API_KEY"],
@@ -790,33 +798,80 @@ async def get_next_messages(
             },
         )
         allow_images = os.environ.get("OPENROUTER_ALLOW_IMAGES", "0") == "1"
-        cleaned_messages = messages if allow_images else text_only_messages(messages)
+        cleaned_messages_primary = messages if allow_images else text_only_messages(messages)
+        cleaned_messages_fallback = text_only_messages(messages)
         async def _one_call():
-            try:
-                async with _openrouter_guard():
-                    message = await _openrouter_completion_with_adaptive_max_tokens(
-                        client=openrouter_client,
-                        model_name=model.value,
-                        messages=cleaned_messages,
-                        temperature=temperature,
-                        extra_body={"reasoning": {"effort": os.environ.get("OPENROUTER_REASONING_EFFORT", "high")}},
-                        start_cap=int(os.environ.get("OPENROUTER_MAX_TOKENS", "200000")),
-                    )
-                if message.usage.prompt_tokens_details:
-                    cached_tokens = message.usage.prompt_tokens_details.cached_tokens
-                else:
+            # Try primary (respect OPENROUTER_ALLOW_IMAGES), then fallback to text-only if needed
+            for attempt_i, payload in enumerate((cleaned_messages_primary, cleaned_messages_fallback), start=1):
+                try:
+                    async with _openrouter_guard():
+                        # Only include reasoning extra_body for models known to support it explicitly
+                        extra_body = {}
+                        if model == Model.openrouter_grok_4_fast_free:
+                            extra_body = {"reasoning": {"effort": os.environ.get("OPENROUTER_REASONING_EFFORT", "high")}}
+                        # Use a conservative start cap for free/community routes unless overridden
+                        default_cap = 8192 if model in (Model.deepseek_v3_1, Model.gpt_oss_120b_free) else 200000
+                        start_cap = int(os.environ.get("OPENROUTER_MAX_TOKENS", str(default_cap)))
+                        message = await _openrouter_completion_with_adaptive_max_tokens(
+                            client=openrouter_client,
+                            model_name=model.value,
+                            messages=payload,
+                            temperature=temperature,
+                            extra_body=extra_body,
+                            start_cap=start_cap,
+                        )
+                    # Some OpenRouter routes may omit usage; guard accordingly
                     cached_tokens = 0
-                usage = ModelUsage(
-                    cache_creation_input_tokens=0,
-                    cache_read_input_tokens=cached_tokens,
-                    input_tokens=message.usage.prompt_tokens - cached_tokens,
-                    output_tokens=message.usage.completion_tokens,
-                )
-                return message.choices[0].message.content, usage
-            except Exception as e:
-                print(f"OpenRouter final failure in _one_call: {e}")
-                logfire.debug(f"OpenRouter final failure in _one_call: {e}")
-                return None
+                    prompt_tokens = 0
+                    completion_tokens = 0
+                    try:
+                        if getattr(message, "usage", None) is not None:
+                            if getattr(message.usage, "prompt_tokens_details", None):
+                                cached_tokens = message.usage.prompt_tokens_details.cached_tokens or 0
+                            prompt_tokens = getattr(message.usage, "prompt_tokens", 0) or 0
+                            completion_tokens = getattr(message.usage, "completion_tokens", 0) or 0
+                    except Exception:
+                        cached_tokens = 0
+                        prompt_tokens = 0
+                        completion_tokens = 0
+                    usage = ModelUsage(
+                        cache_creation_input_tokens=0,
+                        cache_read_input_tokens=cached_tokens,
+                        input_tokens=max(0, prompt_tokens - cached_tokens),
+                        output_tokens=completion_tokens,
+                    )
+                    # Safely extract assistant content
+                    content_text = ""
+                    try:
+                        if getattr(message, "choices", None) and len(message.choices):
+                            first_choice = message.choices[0]
+                            if getattr(first_choice, "message", None) is not None:
+                                content_text = first_choice.message.content or ""
+                            elif hasattr(first_choice, "text"):
+                                content_text = first_choice.text or ""
+                    except Exception:
+                        content_text = ""
+                    if not content_text:
+                        # If DIAG_RAW is set, print a short dump of the response for debugging
+                        if os.environ.get("OPENROUTER_DIAG_RAW", "0") == "1":
+                            try:
+                                raw_json = message.model_dump_json() if hasattr(message, "model_dump_json") else str(message)
+                                preview = (raw_json or "")[:2048]
+                                print(f"[DIAG_MSG] No choices content; response preview: {preview!r}")
+                                logfire.debug(f"[DIAG_MSG] No choices content; response preview: {preview!r}")
+                            except Exception:
+                                pass
+                        raise RuntimeError("OpenRouter returned no choices content")
+                    return content_text, usage
+                except Exception as e:
+                    # If first attempt fails (likely due to images), try fallback once
+                    try:
+                        print(f"OpenRouter attempt {attempt_i} failed: {e}")
+                        logfire.debug(f"OpenRouter attempt {attempt_i} failed: {e}")
+                    except Exception:
+                        pass
+                    continue
+            return None
         raw_results = await asyncio.gather(*[_one_call() for _ in range(n_times)], return_exceptions=True)
         out: list[tuple[str, ModelUsage]] = []
         for r in raw_results:
@@ -1036,15 +1091,23 @@ async def get_next_message(
             temperature=temperature,
             max_tokens=10_000,
         )
-        if message.usage.prompt_tokens_details:
-            cached_tokens = message.usage.prompt_tokens_details.cached_tokens
-        else:
+        # Guard against missing usage on some OpenRouter routes
+        cached_tokens = 0
+        prompt_tokens = 0
+        completion_tokens = 0
+        try:
+            if getattr(message, "usage", None) is not None:
+                if getattr(message.usage, "prompt_tokens_details", None):
+                    cached_tokens = message.usage.prompt_tokens_details.cached_tokens or 0
+                prompt_tokens = getattr(message.usage, "prompt_tokens", 0) or 0
+                completion_tokens = getattr(message.usage, "completion_tokens", 0) or 0
+        except Exception:
             cached_tokens = 0
         return message.choices[0].message.content, ModelUsage(
             cache_creation_input_tokens=0,
             cache_read_input_tokens=cached_tokens,
-            input_tokens=message.usage.prompt_tokens - cached_tokens,
-            output_tokens=message.usage.completion_tokens,
+            input_tokens=max(0, prompt_tokens - cached_tokens),
+            output_tokens=completion_tokens,
         )
     elif model == Model.openrouter_o1:
         openrouter_client = AsyncOpenAI(
@@ -1057,15 +1120,23 @@ async def get_next_message(
             temperature=temperature,
             max_tokens=20_000,
         )
-        if message.usage.prompt_tokens_details:
-            cached_tokens = message.usage.prompt_tokens_details.cached_tokens
-        else:
+        # Guard against missing usage on some OpenRouter routes
+        cached_tokens = 0
+        prompt_tokens = 0
+        completion_tokens = 0
+        try:
+            if getattr(message, "usage", None) is not None:
+                if getattr(message.usage, "prompt_tokens_details", None):
+                    cached_tokens = message.usage.prompt_tokens_details.cached_tokens or 0
+                prompt_tokens = getattr(message.usage, "prompt_tokens", 0) or 0
+                completion_tokens = getattr(message.usage, "completion_tokens", 0) or 0
+        except Exception:
             cached_tokens = 0
         return message.choices[0].message.content, ModelUsage(
             cache_creation_input_tokens=0,
             cache_read_input_tokens=cached_tokens,
-            input_tokens=message.usage.prompt_tokens - cached_tokens,
-            output_tokens=message.usage.completion_tokens,
+            input_tokens=max(0, prompt_tokens - cached_tokens),
+            output_tokens=completion_tokens,
         )
     elif model == Model.openrouter_o1_mini:
         openrouter_client = AsyncOpenAI(
@@ -1078,17 +1149,25 @@ async def get_next_message(
             temperature=temperature,
             max_tokens=20_000,
         )
-        if message.usage.prompt_tokens_details:
-            cached_tokens = message.usage.prompt_tokens_details.cached_tokens
-        else:
+        # Guard against missing usage on some OpenRouter routes
+        cached_tokens = 0
+        prompt_tokens = 0
+        completion_tokens = 0
+        try:
+            if getattr(message, "usage", None) is not None:
+                if getattr(message.usage, "prompt_tokens_details", None):
+                    cached_tokens = message.usage.prompt_tokens_details.cached_tokens or 0
+                prompt_tokens = getattr(message.usage, "prompt_tokens", 0) or 0
+                completion_tokens = getattr(message.usage, "completion_tokens", 0) or 0
+        except Exception:
             cached_tokens = 0
         return message.choices[0].message.content, ModelUsage(
             cache_creation_input_tokens=0,
             cache_read_input_tokens=cached_tokens,
-            input_tokens=message.usage.prompt_tokens - cached_tokens,
-            output_tokens=message.usage.completion_tokens,
+            input_tokens=max(0, prompt_tokens - cached_tokens),
+            output_tokens=completion_tokens,
         )
-    elif model == Model.openrouter_grok_4_fast_free:
+    elif model in [Model.openrouter_grok_4_fast_free, Model.deepseek_v3_1, Model.gpt_oss_120b_free]:
         openrouter_client = AsyncOpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=os.environ["OPENROUTER_API_KEY"],
@@ -1100,27 +1179,76 @@ async def get_next_message(
             },
         )
         allow_images = os.environ.get("OPENROUTER_ALLOW_IMAGES", "0") == "1"
-        cleaned_messages = messages if allow_images else text_only_messages(messages)
-        async with _openrouter_guard():
-            message = await _openrouter_completion_with_adaptive_max_tokens(
-                client=openrouter_client,
-                model_name=model.value,
-                messages=cleaned_messages,
-                temperature=temperature,
-                extra_body={"reasoning": {"effort": os.environ.get("OPENROUTER_REASONING_EFFORT", "high")}},
-                start_cap=int(os.environ.get("OPENROUTER_MAX_TOKENS", "200000")),
-            )
-        if message.usage.prompt_tokens_details:
-            cached_tokens = message.usage.prompt_tokens_details.cached_tokens
-        else:
+        cleaned_messages_primary = messages if allow_images else text_only_messages(messages)
+        cleaned_messages_fallback = text_only_messages(messages)
+        message = None
+        last_err: Exception | None = None
+        for attempt_i, payload in enumerate((cleaned_messages_primary, cleaned_messages_fallback), start=1):
+            try:
+                async with _openrouter_guard():
+                    message = await _openrouter_completion_with_adaptive_max_tokens(
+                        client=openrouter_client,
+                        model_name=model.value,
+                        messages=payload,
+                        temperature=temperature,
+                        extra_body={"reasoning": {"effort": os.environ.get("OPENROUTER_REASONING_EFFORT", "high")}},
+                        start_cap=int(os.environ.get("OPENROUTER_MAX_TOKENS", "200000")),
+                    )
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                try:
+                    print(f"OpenRouter attempt {attempt_i} failed: {e}")
+                    logfire.debug(f"OpenRouter attempt {attempt_i} failed: {e}")
+                except Exception:
+                    pass
+                continue
+        if message is None and last_err is not None:
+            raise last_err
+        # Some OpenRouter routes may omit usage; guard accordingly
+        cached_tokens = 0
+        prompt_tokens = 0
+        completion_tokens = 0
+        try:
+            if getattr(message, "usage", None) is not None:
+                if getattr(message.usage, "prompt_tokens_details", None):
+                    cached_tokens = message.usage.prompt_tokens_details.cached_tokens or 0
+                prompt_tokens = getattr(message.usage, "prompt_tokens", 0) or 0
+                completion_tokens = getattr(message.usage, "completion_tokens", 0) or 0
+        except Exception:
             cached_tokens = 0
-        return message.choices[0].message.content, ModelUsage(
+            prompt_tokens = 0
+            completion_tokens = 0
+        # Safely extract assistant content
+        content_text = ""
+        try:
+            if getattr(message, "choices", None) and len(message.choices):
+                first_choice = message.choices[0]
+                if getattr(first_choice, "message", None) is not None:
+                    content_text = first_choice.message.content or ""
+                elif hasattr(first_choice, "text"):
+                    content_text = first_choice.text or ""
+        except Exception:
+            content_text = ""
+        if not content_text:
+            # If DIAG_RAW is set, print a short dump of the response for debugging
+            if os.environ.get("OPENROUTER_DIAG_RAW", "0") == "1":
+                try:
+                    raw_json = message.model_dump_json() if hasattr(message, "model_dump_json") else str(message)
+                    preview = (raw_json or "")[:2048]
+                    print(f"[DIAG_MSG] No choices content; response preview: {preview!r}")
+                    logfire.debug(f"[DIAG_MSG] No choices content; response preview: {preview!r}")
+                except Exception:
+                    pass
+            raise RuntimeError("OpenRouter returned no choices content")
+        return content_text, ModelUsage(
             cache_creation_input_tokens=0,
             cache_read_input_tokens=cached_tokens,
-            input_tokens=message.usage.prompt_tokens - cached_tokens,
-            output_tokens=message.usage.completion_tokens,
+            input_tokens=max(0, prompt_tokens - cached_tokens),
+            output_tokens=completion_tokens,
         )
-    elif model == [Model.azure_gpt_4o, Model.azure_gpt_4o_mini]:
+    elif model in [Model.azure_gpt_4o, Model.azure_gpt_4o_mini]:
         azure_client = AsyncAzureOpenAI(
             api_key=os.environ["AZURE_OPENAI_API_KEY"],
             api_version="2024-10-01-preview",
