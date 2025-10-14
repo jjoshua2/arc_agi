@@ -15,3 +15,12 @@ wheels/
 logs.txt
 test_data/tmp_solutions*
 test_data/training_solutions*
+
+# Additional ignores
+.venv311/
+.venv*/
+venv/
+.pytest_cache/
+.mypy_cache/
+.vscode/
+*.pkl
