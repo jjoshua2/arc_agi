@@ -468,11 +468,12 @@ async def main() -> None:
             logfire.debug("WARNING: invalid SUBMISSION_ATTEMPTS; ignoring")
 
     # Optional: override batch size (affects number of concurrent challenges)
+    # Higher concurrency at challenge level is more effective than process-level primitive parallelism
     bs_env = os.environ.get("SUBMISSION_BATCH_SIZE")
     try:
-        batch_size = max(1, int(bs_env)) if bs_env else 60
+        batch_size = max(1, int(bs_env)) if bs_env else 100  # Increased from 60 to better utilize 4 cores
     except Exception:
-        batch_size = 60
+        batch_size = 100
     print(f"Using SUBMISSION_BATCH_SIZE={batch_size}")
     logfire.debug(f"Using SUBMISSION_BATCH_SIZE={batch_size}")
 
