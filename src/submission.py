@@ -467,15 +467,23 @@ async def main() -> None:
             print("WARNING: invalid SUBMISSION_ATTEMPTS; ignoring")
             logfire.debug("WARNING: invalid SUBMISSION_ATTEMPTS; ignoring")
 
-    # Optional: override batch size (affects number of concurrent challenges)
-    # Higher concurrency at challenge level is more effective than process-level primitive parallelism
+    # Dynamic batch sizing strategy: small first batch to start LLM calls quickly,
+    # then scale up to process remaining challenges while LLM calls are running
     bs_env = os.environ.get("SUBMISSION_BATCH_SIZE")
     try:
-        batch_size = max(1, int(bs_env)) if bs_env else 100  # Increased from 60 to better utilize 4 cores
+        initial_batch_size = max(1, int(bs_env)) if bs_env else 5  # Small initial batch
     except Exception:
-        batch_size = 100
-    print(f"Using SUBMISSION_BATCH_SIZE={batch_size}")
-    logfire.debug(f"Using SUBMISSION_BATCH_SIZE={batch_size}")
+        initial_batch_size = 5
+    
+    # Larger batch size for subsequent rounds (can be overridden)
+    large_bs_env = os.environ.get("SUBMISSION_LARGE_BATCH_SIZE")
+    try:
+        large_batch_size = max(initial_batch_size, int(large_bs_env)) if large_bs_env else len(eval_ids_to_test)
+    except Exception:
+        large_batch_size = len(eval_ids_to_test)  # Process all remaining in later rounds
+    
+    print(f"Using dynamic batch sizing: round 1 = {initial_batch_size}, round 2+ = {large_batch_size}")
+    logfire.debug(f"Dynamic batch sizing: round 1 = {initial_batch_size}, round 2+ = {large_batch_size}")
 
     disable_low_solve_stop_env = os.environ.get("SUBMISSION_DISABLE_LOW_SOLVE_STOP", "0").lower()
     low_solve_stop_enabled = disable_low_solve_stop_env not in {"1", "true", "yes"}
@@ -494,8 +502,13 @@ async def main() -> None:
         solved_before_round_snapshot = set(solved_challenges)
         round_new_solved_ids: set[str] = set()
 
-        # Sliding window concurrency: keep up to batch_size tasks in-flight
-        sem = asyncio.Semaphore(batch_size)
+        # Dynamic batch sizing: small first round, large subsequent rounds
+        current_batch_size = initial_batch_size if i == 0 else large_batch_size
+        print(f"Round {i+1}: using batch size {current_batch_size}")
+        logfire.debug(f"Round {i+1}: using batch size {current_batch_size}")
+        
+        # Sliding window concurrency: keep up to current_batch_size tasks in-flight
+        sem = asyncio.Semaphore(current_batch_size)
         processed = 0
 
         async def bounded_try(challenge_id: str):
@@ -559,7 +572,7 @@ async def main() -> None:
                 hard_timeout_reached = True
                 break
 
-            while (not grace_triggered) and (len(active_tasks) < batch_size) and (not ids_exhausted):
+            while (not grace_triggered) and (len(active_tasks) < current_batch_size) and (not ids_exhausted):
                 try:
                     cid = next(eval_iter)
                 except StopIteration:
@@ -618,7 +631,7 @@ async def main() -> None:
                 except Exception:
                     pass
 
-                if processed % max(1, batch_size // 2) == 0 or processed == len(eval_ids_to_test):
+                if processed % max(1, current_batch_size // 2) == 0 or processed == len(eval_ids_to_test):
                     print(f"Round {i+1} progress: {processed}/{len(eval_ids_to_test)} processed, {len(solved_challenges)} solved so far")
                     logfire.debug(f"Round {i+1} progress: {processed}/{len(eval_ids_to_test)} processed, {len(solved_challenges)} solved so far")
 
