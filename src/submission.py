@@ -467,23 +467,24 @@ async def main() -> None:
             print("WARNING: invalid SUBMISSION_ATTEMPTS; ignoring")
             logfire.debug("WARNING: invalid SUBMISSION_ATTEMPTS; ignoring")
 
-    # Dynamic batch sizing strategy: small first batch to start LLM calls quickly,
-    # then scale up to process remaining challenges while LLM calls are running
+    # Dynamic batch sizing strategy:
+    # Round 1: Small batches (5 at a time) through ALL challenges to start LLM calls quickly
+    # Round 2+: Large batches (all at once) for maximum parallelism
     bs_env = os.environ.get("SUBMISSION_BATCH_SIZE")
     try:
-        initial_batch_size = max(1, int(bs_env)) if bs_env else 5  # Small initial batch
+        round1_batch_size = max(1, int(bs_env)) if bs_env else 5  # Small batches for round 1
     except Exception:
-        initial_batch_size = 5
+        round1_batch_size = 5
     
-    # Larger batch size for subsequent rounds (can be overridden)
+    # Larger batch size for rounds 2+ (can be overridden)
     large_bs_env = os.environ.get("SUBMISSION_LARGE_BATCH_SIZE")
     try:
-        large_batch_size = max(initial_batch_size, int(large_bs_env)) if large_bs_env else len(eval_ids_to_test)
+        later_rounds_batch_size = max(round1_batch_size, int(large_bs_env)) if large_bs_env else len(eval_ids_to_test)
     except Exception:
-        large_batch_size = len(eval_ids_to_test)  # Process all remaining in later rounds
+        later_rounds_batch_size = len(eval_ids_to_test)  # Process all at once in later rounds
     
-    print(f"Using dynamic batch sizing: round 1 = {initial_batch_size}, round 2+ = {large_batch_size}")
-    logfire.debug(f"Dynamic batch sizing: round 1 = {initial_batch_size}, round 2+ = {large_batch_size}")
+    print(f"Using dynamic batch sizing: round 1 = {round1_batch_size} at a time, round 2+ = {later_rounds_batch_size} all at once")
+    logfire.debug(f"Dynamic batch sizing: round 1 = {round1_batch_size} at a time, round 2+ = {later_rounds_batch_size} all at once")
 
     disable_low_solve_stop_env = os.environ.get("SUBMISSION_DISABLE_LOW_SOLVE_STOP", "0").lower()
     low_solve_stop_enabled = disable_low_solve_stop_env not in {"1", "true", "yes"}
@@ -502,8 +503,8 @@ async def main() -> None:
         solved_before_round_snapshot = set(solved_challenges)
         round_new_solved_ids: set[str] = set()
 
-        # Dynamic batch sizing: small first round, large subsequent rounds
-        current_batch_size = initial_batch_size if i == 0 else large_batch_size
+        # Dynamic batch sizing: small batches for round 1, large batches for rounds 2+
+        current_batch_size = round1_batch_size if i == 0 else later_rounds_batch_size
         print(f"Round {i+1}: using batch size {current_batch_size}")
         logfire.debug(f"Round {i+1}: using batch size {current_batch_size}")
         
