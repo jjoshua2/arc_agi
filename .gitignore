@@ -24,3 +24,4 @@ venv/
 .mypy_cache/
 .vscode/
 *.pkl
+!v1Train.pkl
