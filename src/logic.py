@@ -142,11 +142,11 @@ def run_python_transform_sync_cached(*, code: str, grid_lists: list, timeout: in
     return out
 
 # ---- Bounded, non-blocking wrappers for synchronous transform execution ----
-# Default to 8 concurrent threads unless overridden (was 4)
+# Default to 6 concurrent threads (balanced for GIL-limited CPU work)
 try:
-    _TRANSFORM_EXEC_CONCURRENCY = max(1, int(os.environ.get("SUBMISSION_TRANSFORM_CONCURRENCY", "8")))
+    _TRANSFORM_EXEC_CONCURRENCY = max(1, int(os.environ.get("SUBMISSION_TRANSFORM_CONCURRENCY", "6")))
 except Exception:
-    _TRANSFORM_EXEC_CONCURRENCY = 8
+    _TRANSFORM_EXEC_CONCURRENCY = 6
 
 _transform_exec_sem = asyncio.Semaphore(_TRANSFORM_EXEC_CONCURRENCY)
 
@@ -476,22 +476,22 @@ def percent_right_from_grids(train_output: GRID, train_attempt: GRID) -> float:
         logfire.debug(f"in percent right from grids: {e=}")
         return 0
 
-# ---- Optional process-backed scoring for CPU-heavy loops ----
+# ---- Process-backed scoring for CPU-heavy loops (enabled by default to bypass GIL) ----
 try:
-    _SCORE_USE_PROCESS = os.environ.get("SUBMISSION_SCORE_PROCESS", "0") == "1"
+    _SCORE_USE_PROCESS = os.environ.get("SUBMISSION_SCORE_PROCESS", "1") == "1"
 except Exception:
-    _SCORE_USE_PROCESS = False
+    _SCORE_USE_PROCESS = True
 
 try:
     _SCORE_WORKERS = max(1, int(os.environ.get("SUBMISSION_SCORE_WORKERS", "4")))
 except Exception:
     _SCORE_WORKERS = 4
 
-# Separate thread-pool sizing for scoring (defaults to 8)
+# Separate thread-pool sizing for scoring (defaults to 6, but processes used by default)
 try:
-    _SCORE_THREADS = max(1, int(os.environ.get("SUBMISSION_SCORE_THREADS", "8")))
+    _SCORE_THREADS = max(1, int(os.environ.get("SUBMISSION_SCORE_THREADS", "6")))
 except Exception:
-    _SCORE_THREADS = 8
+    _SCORE_THREADS = 6
 
 _score_executor: ProcessPoolExecutor | None = None
 _score_thread_executor: ThreadPoolExecutor | None = None
