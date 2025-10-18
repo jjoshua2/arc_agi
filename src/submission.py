@@ -28,6 +28,7 @@ except Exception:
 
 from src.run_python import run_python_transform_sync
 from src.logic import run_python_transform_sync_cached
+from concurrent.futures import ProcessPoolExecutor
 
 class ChallengeSolutionWithAccuracy(BaseModel):
     attempt_1: list[GRID]
@@ -290,6 +291,84 @@ async def main() -> None:
         solved_challenges.update(preexisting_solved_ids)
         print(f"Loaded {len(preexisting_solved_ids)} previously solved challenges.")
 
+    # Process-based challenge execution
+    _challenge_executor: ProcessPoolExecutor | None = None
+    
+    def _get_challenge_executor() -> ProcessPoolExecutor:
+        nonlocal _challenge_executor
+        if _challenge_executor is None:
+            # Use 4-5 processes for challenge-level parallelism
+            max_workers = max(4, round1_batch_size)
+            _challenge_executor = ProcessPoolExecutor(max_workers=max_workers)
+        return _challenge_executor
+    
+    def _solve_challenge_in_process(challenge_id: str, challenge_dict: dict, library_dict: dict, env_vars: dict) -> tuple[str, bool, dict]:
+        """Solve a single challenge in a separate process for true parallelism.
+        Returns (challenge_id, solved, solution_data)
+        """
+        import asyncio
+        import os
+        from src.logic import solve_challenge_with_accuracy
+        from src.trees.experiments import grokfast_dreamcoder_tree
+        from src.models import Library, Primitive, Challenge, TrainingExample, TestExample
+        
+        # Set environment variables in the process
+        for key, value in env_vars.items():
+            if value is not None:
+                os.environ[key] = str(value)
+        
+        # Reconstruct objects from serialized data
+        challenge = Challenge(
+            id=challenge_dict['id'],
+            train=[TrainingExample(input=t['input'], output=t['output']) for t in challenge_dict['train']],
+            test=[TestExample(input=t['input'], output=t.get('output')) for t in challenge_dict['test']]
+        )
+        
+        library = Library(primitives=[
+            Primitive(id=p['id'], python_code_str=p['code']) 
+            for p in library_dict['primitives']
+        ]) if library_dict else None
+        
+        async def _async_solve():
+            try:
+                total_cost = [0.0]  # Mutable list for cost tracking
+                solutions_and_accuracies = await solve_challenge_with_accuracy(
+                    challenge=challenge,
+                    tree=grokfast_dreamcoder_tree,
+                    library=library,
+                    use_primitives_weighed_by_score=not False,  # Use the two-pass approach
+                    lpn_model=None,
+                    evaluator=None,
+                    key=None,
+                    challenge_primitive_lpn_scores={},
+                    challenge_primitive_accuracy_scores={},
+                    aggregate_cost_in_cents=total_cost,
+                )
+                
+                first_solutions_and_accuracy, second_solutions_and_accuracy = solutions_and_accuracies[0], solutions_and_accuracies[1]
+                first_solutions, first_accuracy = first_solutions_and_accuracy
+                second_solutions, second_accuracy = second_solutions_and_accuracy
+                
+                # Check if solved (both attempts have 100% accuracy)
+                solved = (first_accuracy == 1.0 and second_accuracy == 1.0)
+                
+                solution_data = {
+                    'first_solutions': first_solutions,
+                    'second_solutions': second_solutions, 
+                    'first_accuracy': first_accuracy,
+                    'second_accuracy': second_accuracy,
+                    'cost': total_cost[0]
+                }
+                
+                return challenge_id, solved, solution_data
+                
+            except Exception as e:
+                print(f"[{challenge_id}] Process error: {e}")
+                return challenge_id, False, {'error': str(e)}
+        
+        # Run async function in process
+        return asyncio.run(_async_solve())
+
     async def try_solve_challenge(challenge_id: str, solved_challenges: set[str], total_cost_in_cents: float) -> bool:
         if challenge_id in solved_challenges:
             print(f"Challenge {challenge_id} already solved")
@@ -515,8 +594,72 @@ async def main() -> None:
         async def bounded_try(challenge_id: str):
             async with sem:
                 try:
-                    res = await try_solve_challenge(challenge_id, solved_challenges, total_cost_in_cents)
-                    return (challenge_id, res, None)
+                    if challenge_id in solved_challenges:
+                        return (challenge_id, True, None)
+                    
+                    # Serialize challenge and library data for process communication
+                    challenge_dict = {
+                        'id': challenge_id,
+                        'train': [{'input': t.input, 'output': t.output} for t in challenges[challenge_id].train],
+                        'test': [{'input': t.input, 'output': t.output} for t in challenges[challenge_id].test]
+                    }
+                    
+                    library_dict = {
+                        'primitives': [{
+                            'id': getattr(p, 'id', f'prim_{i}'),
+                            'code': p.python_code_str
+                        } for i, p in enumerate(library.primitives)] if library else []
+                    } if library else None
+                    
+                    # Environment variables to pass to process
+                    env_vars = {
+                        'SUBMISSION_TWO_PASS_ENABLED': os.environ.get('SUBMISSION_TWO_PASS_ENABLED', '1'),
+                        'SUBMISSION_FIRST_PASS_TOP_K': os.environ.get('SUBMISSION_FIRST_PASS_TOP_K', '50'),
+                        'SUBMISSION_TRANSFORM_TIMEOUT': os.environ.get('SUBMISSION_TRANSFORM_TIMEOUT', '5'),
+                        'OPENAI_API_KEY': os.environ.get('OPENAI_API_KEY'),
+                        'ANTHROPIC_API_KEY': os.environ.get('ANTHROPIC_API_KEY'),
+                        'LOGFIRE_TOKEN': os.environ.get('LOGFIRE_TOKEN')
+                    }
+                    
+                    # Execute in separate process
+                    loop = asyncio.get_running_loop()
+                    executor = _get_challenge_executor()
+                    challenge_id, solved, solution_data = await loop.run_in_executor(
+                        executor,
+                        _solve_challenge_in_process,
+                        challenge_id, 
+                        challenge_dict,
+                        library_dict,
+                        env_vars
+                    )
+                    
+                    if 'error' not in solution_data:
+                        # Update solutions_d with results
+                        first_solutions = solution_data['first_solutions']
+                        second_solutions = solution_data['second_solutions']
+                        first_accuracy = solution_data['first_accuracy']
+                        second_accuracy = solution_data['second_accuracy']
+                        total_cost_in_cents[0] += solution_data['cost']
+                        
+                        # Store solution data (similar to original try_solve_challenge logic)
+                        intermediate_solutions_d[challenge_id] = ChallengeSolutionWithAccuracy(
+                            attempt_1=first_solutions,
+                            attempt_2=second_solutions,
+                            accuracy_1=first_accuracy,
+                            accuracy_2=second_accuracy,
+                        )
+                        
+                        solutions_d[challenge_id] = []
+                        for i in range(len(challenges[challenge_id].test)):
+                            solutions_d[challenge_id].append(
+                                ChallengeSolution(
+                                    attempt_1=first_solutions[i] if i < len(first_solutions) else [[0]],
+                                    attempt_2=second_solutions[i] if i < len(second_solutions) else [[0]],
+                                )
+                            )
+                    
+                    return (challenge_id, solved, None)
+                    
                 except Exception as e:
                     return (challenge_id, None, e)
 
