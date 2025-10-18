@@ -533,6 +533,211 @@ async def compute_primitive_score_async(challenge_train: list, transformed_grids
     async with _score_sem:
         return await loop.run_in_executor(_get_score_thread_executor(), _compute_primitive_score_sync, challenge_train, transformed_grids)
 
+# -------- Two-pass primitive scoring (first-pass single-example, second-pass full) --------
+_FIRST_PASS_SCORE_CACHE: dict[str, tuple[float, float]] = {}
+
+def _fp_cache_key(challenge_id: str, primitive_id: str, example_index: int) -> str:
+    return f"{challenge_id}:{primitive_id}:{example_index}"
+
+async def _evaluate_primitive_single_example_async(
+    primitive: Primitive,
+    challenge: Challenge,
+    example_index: int,
+) -> tuple[float, float]:
+    # Returns (num_correct_on_example, percent_right_on_example)
+    key = _fp_cache_key(challenge.id, getattr(primitive, "id", "?"), example_index)
+    if key in _FIRST_PASS_SCORE_CACHE:
+        return _FIRST_PASS_SCORE_CACHE[key]
+    try:
+        train_ex = challenge.train[example_index]
+        tr = await run_transform_cached_async(
+            code=primitive.python_code_str,
+            grid_lists=[deepcopy(train_ex.input)],
+            timeout=int(os.environ.get("SUBMISSION_TRANSFORM_TIMEOUT", "5")),
+            raise_exception=False,
+        )
+        if tr and tr.transform_results:
+            pred = tr.transform_results[0]
+            acc = percent_right_from_grids(train_ex.output, pred)
+            num_correct = 1.0 if pred == train_ex.output else 0.0
+            res = (num_correct, float(acc))
+            _FIRST_PASS_SCORE_CACHE[key] = res
+            return res
+        _FIRST_PASS_SCORE_CACHE[key] = (0.0, 0.0)
+        return 0.0, 0.0
+    except Exception:
+        _FIRST_PASS_SCORE_CACHE[key] = (0.0, 0.0)
+        return 0.0, 0.0
+
+async def _two_pass_select_primitives_async(
+    library: Library,
+    challenge: Challenge,
+    k_top: int,
+    challenge_primitive_scores: dict[str, dict[str, tuple[float, float]]] | None,
+) -> list[Primitive]:
+    # Config
+    try:
+        fp_top_k = max(1, int(os.environ.get("SUBMISSION_FIRST_PASS_TOP_K", "50")))
+    except Exception:
+        fp_top_k = 50
+    try:
+        fp_batch = max(1, int(os.environ.get("SUBMISSION_FIRST_PASS_BATCH_SIZE", "150")))
+    except Exception:
+        fp_batch = 150
+    try:
+        sp_batch = max(1, int(os.environ.get("SUBMISSION_SECOND_PASS_BATCH_SIZE", "100")))
+    except Exception:
+        sp_batch = 100
+
+    if not library or not library.primitives:
+        return []
+
+    # First pass on example_index=0 across all primitives (batched)
+    example_index = 0
+    prims = list(library.primitives)
+    first_pass_scores: list[tuple[int, float, float]] = []  # (idx, num_correct, acc)
+
+    for start in range(0, len(prims), fp_batch):
+        batch = prims[start:start+fp_batch]
+        tasks = [
+            _evaluate_primitive_single_example_async(p, challenge, example_index)
+            for p in batch
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for i, r in enumerate(results):
+            idx = start + i
+            if isinstance(r, Exception):
+                first_pass_scores.append((idx, 0.0, 0.0))
+            else:
+                nc, acc = r
+                first_pass_scores.append((idx, float(nc), float(acc)))
+
+    # Identify perfect-on-first-example primitives
+    perfect_on_first: list[int] = [idx for idx, nc, acc in first_pass_scores if nc >= 1.0 and acc >= 1.0]
+    
+    # Early check: if any perfect-on-first, immediately test them on ALL examples
+    if perfect_on_first:
+        print(f"[{challenge.id}] Found {len(perfect_on_first)} perfect-on-first primitives; checking if any solve all examples...")
+        logfire.debug(f"[{challenge.id}] Found {len(perfect_on_first)} perfect-on-first primitives")
+        perfect_candidates = [prims[idx] for idx in perfect_on_first]
+        
+        # Evaluate perfect candidates on all training examples
+        perfect_full_scores: list[tuple[int, float, float]] = []  # (idx_in_prims, num_correct, secondary_score)
+        total_tr = len(challenge.train)
+        
+        for idx in perfect_on_first:
+            p = prims[idx]
+            pid = getattr(p, "id", "?")
+            # Check cache first
+            if challenge_primitive_scores is not None and challenge.id in challenge_primitive_scores and pid in challenge_primitive_scores[challenge.id]:
+                nc, sc = challenge_primitive_scores[challenge.id][pid]
+                perfect_full_scores.append((idx, float(nc), float(sc)))
+            else:
+                # Evaluate
+                try:
+                    nc, sc = await evaluate_primitive_weighed_async(p, challenge, challenge_primitive_scores)
+                    perfect_full_scores.append((idx, float(nc), float(sc)))
+                except Exception:
+                    perfect_full_scores.append((idx, 0.0, 0.0))
+        
+        # Check if any achieved perfect on ALL training examples
+        perfect_all = [(idx, nc, sc) for idx, nc, sc in perfect_full_scores if nc >= float(total_tr)]
+        if perfect_all:
+            print(f"[{challenge.id}] Found {len(perfect_all)} primitives that solve all training examples!")
+            logfire.debug(f"[{challenge.id}] Early-exit: {len(perfect_all)} primitives solve all training examples")
+            # Return the best perfect ones (softmax sample from them)
+            scores = [nc + sc for _, nc, sc in perfect_all]
+            if not scores:
+                # Shouldn't happen, but fallback
+                return [prims[perfect_all[0][0]]]
+            scores_arr = np.array(scores)
+            exp_scores = np.exp(scores_arr - np.max(scores_arr))
+            probabilities = exp_scores / np.clip(exp_scores.sum(), 1e-12, None)
+            selected_positions = _safe_sample_indices(len(perfect_all), min(k_top, len(perfect_all)), probabilities, ctx=f"two_pass_perfect:{challenge.id}")
+            return [prims[perfect_all[pos][0]] for pos in selected_positions]
+
+    # No perfect solution found; proceed with top-K selection from all primitives
+    # Rank by (num_correct + acc)
+    def _score_tuple(tup: tuple[int, float, float]) -> tuple[float, float]:
+        _, nc, acc = tup
+        return (nc + acc, acc)
+    
+    first_pass_scores.sort(key=_score_tuple, reverse=True)
+    top_indices: list[int] = [idx for idx, _, _ in first_pass_scores[:fp_top_k]]
+    
+    # Deduplicate
+    seen = set()
+    candidates: list[Primitive] = []
+    for idx in top_indices:
+        if idx in seen:
+            continue
+        seen.add(idx)
+        candidates.append(prims[idx])
+    
+    if not candidates:
+        return []
+
+    # Second pass: evaluate shortlisted candidates across all training examples
+    # NOTE: if any perfect-on-first primitives were already evaluated above, they are already in cache
+    full_scores: list[tuple[int, float, float]] = []  # (idx_in_prims, num_correct_total, secondary_score)
+
+    total_tr = len(challenge.train)
+    def _has_cache(pid: str) -> bool:
+        try:
+            return challenge_primitive_scores is not None and pid in challenge_primitive_scores.get(challenge.id, {})
+        except Exception:
+            return False
+
+    # Build list of (idx, primitive) for candidates
+    cand_list = [(prims.index(p), p) for p in candidates]
+
+    # Evaluate in batches
+    for start in range(0, len(cand_list), sp_batch):
+        batch = cand_list[start:start+sp_batch]
+        # Split into cached and to-eval
+        to_eval: list[tuple[int, Primitive]] = []
+        for idx, p in batch:
+            pid = getattr(p, "id", "?")
+            if _has_cache(pid):
+                try:
+                    nc, sc = challenge_primitive_scores[challenge.id][pid]
+                    full_scores.append((idx, float(nc), float(sc)))
+                except Exception:
+                    to_eval.append((idx, p))
+            else:
+                to_eval.append((idx, p))
+
+        if to_eval:
+            tasks = [
+                evaluate_primitive_weighed_async(p, challenge, challenge_primitive_scores)
+                for _, p in to_eval
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for (idx, p), r in zip(to_eval, results):
+                if isinstance(r, Exception):
+                    full_scores.append((idx, 0.0, 0.0))
+                else:
+                    nc, sc = r
+                    full_scores.append((idx, float(nc), float(sc)))
+
+    # Compute selection probabilities via softmax over (num_correct + secondary_score)
+    scores = []
+    idxs = []
+    for idx, nc, sc in full_scores:
+        scores.append(nc + sc)
+        idxs.append(idx)
+    if not scores:
+        return []
+
+    scores_arr = np.array(scores)
+    exp_scores = np.exp(scores_arr - np.max(scores_arr))
+    probabilities = exp_scores / np.clip(exp_scores.sum(), 1e-12, None)
+
+    # Sample k_top distinct primitives based on probabilities
+    selected_idx_positions = _safe_sample_indices(len(scores), min(k_top, len(scores)), probabilities, ctx=f"two_pass:{challenge.id}")
+    final_indices = [idxs[pos] for pos in selected_idx_positions]
+    return [prims[i] for i in final_indices]
+
 
 def get_best_primitives(
     library: Library, challenge: Challenge, k_top: int
@@ -882,23 +1087,35 @@ async def get_best_primitives_weighed_by_score_async(
     k_top: int, 
     challenge_primitive_scores: dict[str, dict[str, tuple[float, float]]] = None
 ) -> list[Primitive]:
-    """Parallel version of get_best_primitives_weighed_by_score using asyncio."""
+    """Parallel version of get_best_primitives_weighed_by_score using asyncio.
+    Optionally uses a two-pass strategy controlled via env vars to reduce full scoring.
+    """
     if len(library.primitives) == 0:
         return []
-    
+
+    # Two-pass gate (default ON): first-pass single-example across all, second-pass full on top-K
+    two_pass_enabled = os.environ.get("SUBMISSION_TWO_PASS_ENABLED", "1") != "0"
+    if two_pass_enabled:
+        try:
+            return await _two_pass_select_primitives_async(library, challenge, k_top, challenge_primitive_scores)
+        except Exception as e:
+            # Fall back to legacy path on any error
+            logfire.debug(f"Two-pass selection failed for {challenge.id}, falling back. err={e}")
+
+    # Legacy: evaluate all primitives fully, then softmax sample k_top
     # Create tasks for all primitives
     tasks = [
         evaluate_primitive_weighed_async(primitive, challenge, challenge_primitive_scores) 
         for primitive in library.primitives
     ]
-    
-    # Execute all tasks in parallel
+
+    # Execute all tasks in parallel (bounded inside evaluate_primitive_weighed_async)
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    
+
     # Process results
     example_correct: list[float] = []
     secondary_score_lst: list[float] = []
-    
+
     for i, result in enumerate(results):
         if isinstance(result, Exception):
             logfire.debug(f"Exception in primitive {i}: {result}")
@@ -914,7 +1131,7 @@ async def get_best_primitives_weighed_by_score_async(
     # we are essentially biasing towards primitives which get 100% on an
     # example instead of 99% by adding primary score to secondary score
     scores = [p + s for p, s in zip(example_correct, secondary_score_lst)]
-    
+
     # Convert scores to probabilities using softmax
     scores = np.array(scores)
     exp_scores = np.exp(scores - np.max(scores))  # Subtract max for numerical stability
