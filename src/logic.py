@@ -142,11 +142,11 @@ def run_python_transform_sync_cached(*, code: str, grid_lists: list, timeout: in
     return out
 
 # ---- Bounded, non-blocking wrappers for synchronous transform execution ----
-# Default to 4 concurrent threads unless overridden
+# Default to 8 concurrent threads unless overridden (was 4)
 try:
-    _TRANSFORM_EXEC_CONCURRENCY = max(1, int(os.environ.get("SUBMISSION_TRANSFORM_CONCURRENCY", "4")))
+    _TRANSFORM_EXEC_CONCURRENCY = max(1, int(os.environ.get("SUBMISSION_TRANSFORM_CONCURRENCY", "8")))
 except Exception:
-    _TRANSFORM_EXEC_CONCURRENCY = 4
+    _TRANSFORM_EXEC_CONCURRENCY = 8
 
 _transform_exec_sem = asyncio.Semaphore(_TRANSFORM_EXEC_CONCURRENCY)
 
@@ -487,11 +487,11 @@ try:
 except Exception:
     _SCORE_WORKERS = 4
 
-# Separate thread-pool sizing for scoring (defaults to 4)
+# Separate thread-pool sizing for scoring (defaults to 8)
 try:
-    _SCORE_THREADS = max(1, int(os.environ.get("SUBMISSION_SCORE_THREADS", "4")))
+    _SCORE_THREADS = max(1, int(os.environ.get("SUBMISSION_SCORE_THREADS", "8")))
 except Exception:
-    _SCORE_THREADS = 4
+    _SCORE_THREADS = 8
 
 _score_executor: ProcessPoolExecutor | None = None
 _score_thread_executor: ThreadPoolExecutor | None = None
@@ -581,13 +581,13 @@ async def _two_pass_select_primitives_async(
     except Exception:
         fp_top_k = 50
     try:
-        fp_batch = max(1, int(os.environ.get("SUBMISSION_FIRST_PASS_BATCH_SIZE", "150")))
+        fp_batch = max(1, int(os.environ.get("SUBMISSION_FIRST_PASS_BATCH_SIZE", "200")))
     except Exception:
-        fp_batch = 150
+        fp_batch = 200
     try:
-        sp_batch = max(1, int(os.environ.get("SUBMISSION_SECOND_PASS_BATCH_SIZE", "100")))
+        sp_batch = max(1, int(os.environ.get("SUBMISSION_SECOND_PASS_BATCH_SIZE", "150")))
     except Exception:
-        sp_batch = 100
+        sp_batch = 150
 
     if not library or not library.primitives:
         return []
