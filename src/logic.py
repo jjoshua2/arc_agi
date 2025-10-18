@@ -535,9 +535,64 @@ async def compute_primitive_score_async(challenge_train: list, transformed_grids
 
 # -------- Two-pass primitive scoring (first-pass single-example, second-pass full) --------
 _FIRST_PASS_SCORE_CACHE: dict[str, tuple[float, float]] = {}
+_first_pass_executor: ProcessPoolExecutor | None = None
 
 def _fp_cache_key(challenge_id: str, primitive_id: str, example_index: int) -> str:
     return f"{challenge_id}:{primitive_id}:{example_index}"
+
+def _get_first_pass_executor() -> ProcessPoolExecutor:
+    global _first_pass_executor
+    if _first_pass_executor is None:
+        # Use 4 processes for true parallelism on primitive evaluation
+        _first_pass_executor = ProcessPoolExecutor(max_workers=4)
+    return _first_pass_executor
+
+def _evaluate_primitives_chunk_sync(primitives_chunk: list, challenge_dict: dict, example_index: int) -> list[tuple[int, float, float]]:
+    """Process a chunk of primitives in a separate process (bypasses GIL).
+    Returns list of (original_index, num_correct, accuracy) for each primitive.
+    """
+    from src.run_python import run_python_transform_sync
+    from copy import deepcopy
+    import os
+    
+    results = []
+    train_example = challenge_dict['train'][example_index]
+    
+    for orig_idx, primitive_code in primitives_chunk:
+        try:
+            tr = run_python_transform_sync(
+                code=primitive_code,
+                grid_lists=[deepcopy(train_example['input'])],
+                timeout=int(os.environ.get("SUBMISSION_TRANSFORM_TIMEOUT", "5")),
+                raise_exception=False,
+            )
+            if tr and tr.transform_results:
+                pred = tr.transform_results[0]
+                # Simple grid comparison
+                expected = train_example['output']
+                num_correct = 1.0 if pred == expected else 0.0
+                
+                # Calculate accuracy
+                if len(expected) != len(pred) or (expected and len(expected[0]) != len(pred[0])):
+                    acc = 0.0
+                else:
+                    total_cells = len(expected) * (len(expected[0]) if expected else 0)
+                    if total_cells == 0:
+                        acc = 0.0
+                    else:
+                        correct_cells = sum(
+                            1 for r in range(len(expected)) for c in range(len(expected[0]))
+                            if expected[r][c] == pred[r][c]
+                        )
+                        acc = correct_cells / total_cells
+                        
+                results.append((orig_idx, num_correct, float(acc)))
+            else:
+                results.append((orig_idx, 0.0, 0.0))
+        except Exception:
+            results.append((orig_idx, 0.0, 0.0))
+    
+    return results
 
 async def _evaluate_primitive_single_example_async(
     primitive: Primitive,
@@ -581,10 +636,6 @@ async def _two_pass_select_primitives_async(
     except Exception:
         fp_top_k = 50
     try:
-        fp_batch = max(1, int(os.environ.get("SUBMISSION_FIRST_PASS_BATCH_SIZE", "200")))
-    except Exception:
-        fp_batch = 200
-    try:
         sp_batch = max(1, int(os.environ.get("SUBMISSION_SECOND_PASS_BATCH_SIZE", "150")))
     except Exception:
         sp_batch = 150
@@ -592,25 +643,74 @@ async def _two_pass_select_primitives_async(
     if not library or not library.primitives:
         return []
 
-    # First pass on example_index=0 across all primitives (batched)
+    # First pass on example_index=0 across all primitives (process-based for true parallelism)
     example_index = 0
     prims = list(library.primitives)
-    first_pass_scores: list[tuple[int, float, float]] = []  # (idx, num_correct, acc)
-
-    for start in range(0, len(prims), fp_batch):
-        batch = prims[start:start+fp_batch]
-        tasks = [
-            _evaluate_primitive_single_example_async(p, challenge, example_index)
-            for p in batch
+    
+    # Check cache first to avoid re-evaluation
+    cached_results: dict[int, tuple[float, float]] = {}
+    uncached_indices: list[int] = []
+    for i, p in enumerate(prims):
+        cache_key = _fp_cache_key(challenge.id, getattr(p, "id", "?"), example_index)
+        if cache_key in _FIRST_PASS_SCORE_CACHE:
+            cached_results[i] = _FIRST_PASS_SCORE_CACHE[cache_key]
+        else:
+            uncached_indices.append(i)
+    
+    first_pass_scores: list[tuple[int, float, float]] = []
+    
+    # Add cached results
+    for i, (nc, acc) in cached_results.items():
+        first_pass_scores.append((i, float(nc), float(acc)))
+    
+    if uncached_indices:
+        print(f"[{challenge.id}] First pass: evaluating {len(uncached_indices)} primitives across 4 processes ({len(cached_results)} cached)")
+        logfire.debug(f"[{challenge.id}] Process-based first pass: {len(uncached_indices)} uncached, {len(cached_results)} cached")
+        
+        # Divide uncached primitives across 4 processes (~500 each for 2000 total)
+        num_processes = 4
+        chunk_size = max(1, len(uncached_indices) // num_processes)
+        chunks = []
+        
+        # Serialize challenge for process communication
+        challenge_dict = {
+            'train': [{'input': t.input, 'output': t.output} for t in challenge.train],
+            'id': challenge.id
+        }
+        
+        # Create chunks of (original_index, primitive_code)
+        for i in range(0, len(uncached_indices), chunk_size):
+            chunk_indices = uncached_indices[i:i+chunk_size]
+            chunk_data = [(idx, prims[idx].python_code_str) for idx in chunk_indices]
+            chunks.append(chunk_data)
+        
+        # Process chunks in parallel using ProcessPoolExecutor
+        loop = asyncio.get_running_loop()
+        executor = _get_first_pass_executor()
+        
+        chunk_futures = [
+            loop.run_in_executor(
+                executor, 
+                _evaluate_primitives_chunk_sync, 
+                chunk, 
+                challenge_dict, 
+                example_index
+            ) for chunk in chunks
         ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        for i, r in enumerate(results):
-            idx = start + i
-            if isinstance(r, Exception):
-                first_pass_scores.append((idx, 0.0, 0.0))
-            else:
-                nc, acc = r
-                first_pass_scores.append((idx, float(nc), float(acc)))
+        
+        # Wait for all processes to complete
+        chunk_results = await asyncio.gather(*chunk_futures, return_exceptions=True)
+        
+        # Collect results and update cache
+        for chunk_result in chunk_results:
+            if isinstance(chunk_result, Exception):
+                print(f"[{challenge.id}] Process chunk failed: {chunk_result}")
+                continue
+            for orig_idx, nc, acc in chunk_result:
+                first_pass_scores.append((orig_idx, float(nc), float(acc)))
+                # Cache the result
+                cache_key = _fp_cache_key(challenge.id, getattr(prims[orig_idx], "id", "?"), example_index)
+                _FIRST_PASS_SCORE_CACHE[cache_key] = (float(nc), float(acc))
 
     # Identify perfect-on-first-example primitives
     perfect_on_first: list[int] = [idx for idx, nc, acc in first_pass_scores if nc >= 1.0 and acc >= 1.0]
