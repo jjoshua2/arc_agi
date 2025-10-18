@@ -19,6 +19,84 @@ from src import logfire
 
 from pydantic import BaseModel, TypeAdapter
 
+def solve_challenge_in_process(challenge_id: str, challenge_dict: dict, library_dict: dict, env_vars: dict) -> tuple[str, bool, dict]:
+    """Solve a single challenge in a separate process for true parallelism.
+    Returns (challenge_id, solved, solution_data)
+    """
+    import asyncio
+    import os
+    
+    # Set environment variables in the process
+    for key, value in env_vars.items():
+        if value is not None:
+            os.environ[key] = str(value)
+    
+    # Import after setting env vars to avoid JAX issues
+    from src.logic import solve_challenge_with_accuracy
+    from src.trees.experiments import grokfast_dreamcoder_tree
+    from src.models import Library, Primitive, Challenge, TrainingExample, TestExample
+    
+    try:
+        # Reconstruct objects from serialized data
+        challenge = Challenge(
+            id=challenge_dict['id'],
+            train=[TrainingExample(input=t['input'], output=t['output']) for t in challenge_dict['train']],
+            test=[TestExample(input=t['input'], output=t.get('output')) for t in challenge_dict['test']]
+        )
+        
+        library = Library(primitives=[
+            Primitive(id=p['id'], python_code_str=p['code']) 
+            for p in library_dict['primitives']
+        ]) if library_dict else None
+        
+        async def _async_solve():
+            try:
+                total_cost = [0.0]  # Mutable list for cost tracking
+                solutions_and_accuracies = await solve_challenge_with_accuracy(
+                    challenge=challenge,
+                    tree=grokfast_dreamcoder_tree,
+                    library=library,
+                    use_primitives_weighed_by_score=True,  # Use the two-pass approach
+                    lpn_model=None,
+                    evaluator=None,
+                    key=None,
+                    challenge_primitive_lpn_scores={},
+                    challenge_primitive_accuracy_scores={},
+                    aggregate_cost_in_cents=total_cost,
+                )
+                
+                first_solutions_and_accuracy, second_solutions_and_accuracy = solutions_and_accuracies[0], solutions_and_accuracies[1]
+                first_solutions, first_accuracy = first_solutions_and_accuracy
+                second_solutions, second_accuracy = second_solutions_and_accuracy
+                
+                # Check if solved (both attempts have 100% accuracy)
+                solved = (first_accuracy == 1.0 and second_accuracy == 1.0)
+                
+                solution_data = {
+                    'first_solutions': first_solutions,
+                    'second_solutions': second_solutions, 
+                    'first_accuracy': first_accuracy,
+                    'second_accuracy': second_accuracy,
+                    'cost': total_cost[0]
+                }
+                
+                return challenge_id, solved, solution_data
+                
+            except Exception as e:
+                print(f"[{challenge_id}] Process async error: {e}")
+                import traceback
+                traceback.print_exc()
+                return challenge_id, False, {'error': str(e)}
+        
+        # Run async function in process
+        return asyncio.run(_async_solve())
+        
+    except Exception as e:
+        print(f"[{challenge_id}] Process setup error: {e}")
+        import traceback
+        traceback.print_exc()
+        return challenge_id, False, {'error': str(e)}
+
 # Load environment variables from .env if available
 try:
     from dotenv import load_dotenv
@@ -29,6 +107,10 @@ except Exception:
 from src.run_python import run_python_transform_sync
 from src.logic import run_python_transform_sync_cached
 from concurrent.futures import ProcessPoolExecutor
+import multiprocessing
+
+# Use spawn method to avoid JAX/fork issues
+multiprocessing.set_start_method('spawn', force=True)
 
 class ChallengeSolutionWithAccuracy(BaseModel):
     attempt_1: list[GRID]
@@ -302,72 +384,6 @@ async def main() -> None:
             _challenge_executor = ProcessPoolExecutor(max_workers=max_workers)
         return _challenge_executor
     
-    def _solve_challenge_in_process(challenge_id: str, challenge_dict: dict, library_dict: dict, env_vars: dict) -> tuple[str, bool, dict]:
-        """Solve a single challenge in a separate process for true parallelism.
-        Returns (challenge_id, solved, solution_data)
-        """
-        import asyncio
-        import os
-        from src.logic import solve_challenge_with_accuracy
-        from src.trees.experiments import grokfast_dreamcoder_tree
-        from src.models import Library, Primitive, Challenge, TrainingExample, TestExample
-        
-        # Set environment variables in the process
-        for key, value in env_vars.items():
-            if value is not None:
-                os.environ[key] = str(value)
-        
-        # Reconstruct objects from serialized data
-        challenge = Challenge(
-            id=challenge_dict['id'],
-            train=[TrainingExample(input=t['input'], output=t['output']) for t in challenge_dict['train']],
-            test=[TestExample(input=t['input'], output=t.get('output')) for t in challenge_dict['test']]
-        )
-        
-        library = Library(primitives=[
-            Primitive(id=p['id'], python_code_str=p['code']) 
-            for p in library_dict['primitives']
-        ]) if library_dict else None
-        
-        async def _async_solve():
-            try:
-                total_cost = [0.0]  # Mutable list for cost tracking
-                solutions_and_accuracies = await solve_challenge_with_accuracy(
-                    challenge=challenge,
-                    tree=grokfast_dreamcoder_tree,
-                    library=library,
-                    use_primitives_weighed_by_score=not False,  # Use the two-pass approach
-                    lpn_model=None,
-                    evaluator=None,
-                    key=None,
-                    challenge_primitive_lpn_scores={},
-                    challenge_primitive_accuracy_scores={},
-                    aggregate_cost_in_cents=total_cost,
-                )
-                
-                first_solutions_and_accuracy, second_solutions_and_accuracy = solutions_and_accuracies[0], solutions_and_accuracies[1]
-                first_solutions, first_accuracy = first_solutions_and_accuracy
-                second_solutions, second_accuracy = second_solutions_and_accuracy
-                
-                # Check if solved (both attempts have 100% accuracy)
-                solved = (first_accuracy == 1.0 and second_accuracy == 1.0)
-                
-                solution_data = {
-                    'first_solutions': first_solutions,
-                    'second_solutions': second_solutions, 
-                    'first_accuracy': first_accuracy,
-                    'second_accuracy': second_accuracy,
-                    'cost': total_cost[0]
-                }
-                
-                return challenge_id, solved, solution_data
-                
-            except Exception as e:
-                print(f"[{challenge_id}] Process error: {e}")
-                return challenge_id, False, {'error': str(e)}
-        
-        # Run async function in process
-        return asyncio.run(_async_solve())
 
     async def try_solve_challenge(challenge_id: str, solved_challenges: set[str], total_cost_in_cents: float) -> bool:
         if challenge_id in solved_challenges:
@@ -626,7 +642,7 @@ async def main() -> None:
                     executor = _get_challenge_executor()
                     challenge_id, solved, solution_data = await loop.run_in_executor(
                         executor,
-                        _solve_challenge_in_process,
+                        solve_challenge_in_process,
                         challenge_id, 
                         challenge_dict,
                         library_dict,
