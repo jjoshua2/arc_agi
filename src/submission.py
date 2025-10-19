@@ -722,6 +722,8 @@ async def main() -> None:
                         task = asyncio.create_task(_llm_stage(challenge_id))
                         llm_tasks.add(task)
                         task.add_done_callback(lambda t: llm_tasks.discard(t))
+                        # Yield control so background LLM tasks can start immediately
+                        await asyncio.sleep(0)
                         return (challenge_id, True, None)
                     else:
                         # Execute in separate process
@@ -828,6 +830,9 @@ async def main() -> None:
                     break
                 task = asyncio.create_task(bounded_try(cid))
                 active_tasks[task] = cid
+
+            # Let background LLM tasks run between scheduling bursts
+            await asyncio.sleep(0)
 
             if not active_tasks:
                 if ids_exhausted:
