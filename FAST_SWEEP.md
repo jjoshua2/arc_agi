@@ -5,6 +5,7 @@ This implements a fast primitive evaluation system to speed up the initial "libr
 ## What it does
 
 - **Persistent Worker Pool**: Replaces per-primitive subprocess spawning with reusable worker processes
+- **Primitive Blocklist**: Automatically tracks and blocks primitives that consistently crash workers
 - **Shape-based Filtering**: Quickly rejects primitives that can't possibly work based on input/output shape patterns
 - **Inline Execution**: Runs transform functions directly in worker memory instead of subprocess + temp files
 
@@ -64,11 +65,21 @@ The fast sweep automatically integrates with existing code paths:
 
 Look for these log messages:
 ```
-[challenge_id] Shape filter: kept 1234/2064 primitives (rejected 830)
-[challenge_id] Fast sweep: found 12 perfect-on-first primitives  
-[challenge_id] Fast sweep: shape=0.1s, first=45.2s, second=8.1s, total=53.4s
+Loaded primitive blocklist: 15 blocked primitives
+🚫 Filtered out 15 blocked primitives (2049/2064 remaining)
+[challenge_id] Shape filter: kept 1234/2049 primitives (rejected 815)
+[challenge_id] Fast sweep: found 12 perfect-on-first primitives
+⚠️  Primitive bad_func_123 failed (2/3 to block, memoryerror)
+🚫 BLOCKED primitive bad_func_456 after 3 failures in 60.0m (systemerror)
+[challenge_id] Fast sweep: blocklist=0.001s, shape=0.001s, first=45.2s, second=8.1s, total=45.3s
 Started transform pool: 4 workers, forkserver context
 Cleaned up transform pool
+
+=== Primitive Blocklist Report ===
+Total blocked primitives: 23
+Total failures recorded: 89
+Recent failures (1h): 12
+Most problematic primitives: [('bad_func_456', 8), ('memory_hog', 6)]
 ```
 
 ## Kaggle notebook tips
@@ -77,12 +88,38 @@ Cleaned up transform pool
 2. **Memory management**: Workers are restarted every 200 tasks by default to prevent memory leaks
 3. **Context choice**: Uses `forkserver` by default on Linux for notebook compatibility
 
+## Blocklist Management
+
+Problematic primitives are automatically blocked after 3 failures within 1 hour. The blocklist persists across runs in `primitive_blocklist.json`.
+
+### Manual blocklist management
+```bash
+# Check blocklist status
+python manage_blocklist.py status
+
+# List all blocked primitives
+python manage_blocklist.py list --verbose
+
+# Manually block a primitive
+python manage_blocklist.py block bad_primitive_id --reason="causes crashes"
+
+# Unblock a primitive for testing
+python manage_blocklist.py unblock primitive_id
+
+# Clear entire blocklist
+python manage_blocklist.py clear --confirm
+
+# Export blocklist data for analysis
+python manage_blocklist.py export analysis.json
+```
+
 ## Troubleshooting
 
 ### Common issues
-- **Import errors**: Make sure `src/transform_pool.py` and `src/shape_filter.py` are in your path
+- **Import errors**: Make sure `src/transform_pool.py`, `src/shape_filter.py`, and `src/primitive_blocklist.py` are in your path
 - **Multiprocessing errors**: Try `ARC_FAST_SWEEP=0` to disable and compare performance
 - **Memory issues**: Reduce `ARC_FAST_SWEEP_WORKERS` or `ARC_FAST_SWEEP_BATCH_SIZE`
+- **Too many blocked primitives**: Check `python manage_blocklist.py status` and consider clearing old blocks
 
 ### Performance debugging
 The system logs timing for each phase. If first pass is still slow:

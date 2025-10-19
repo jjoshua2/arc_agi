@@ -10,6 +10,7 @@ import asyncio
 from src.models import Library, Primitive, Challenge, TrainExample
 from src.transform_pool import FastTransformPool, shutdown_global_pool
 from src.shape_filter import filter_primitives_by_shape
+from src.primitive_blocklist import get_primitive_blocklist
 
 def create_test_library():
     """Create a small test library with a few primitives"""
@@ -32,6 +33,11 @@ def transform(grid):
         Primitive(id="invalid", python_code_str="""
 def transform(grid):
     raise ValueError("This primitive always fails")
+"""),
+        Primitive(id="memory_bomb", python_code_str="""
+def transform(grid):
+    # This will cause MemoryError
+    return [[0] * 1000000 for _ in range(1000000)]
 """)
     ]
     return Library(primitives=primitives)
@@ -113,6 +119,42 @@ def test_shape_filter():
     # Note: transpose might be kept since our test examples happen to be square
     print("✓ Shape filter test completed")
 
+def test_blocklist():
+    """Test the primitive blocklist functionality"""
+    print("\nTesting primitive blocklist...")
+    
+    # Clear any existing blocklist
+    blocklist = get_primitive_blocklist()
+    blocklist.clear_blocklist()
+    
+    # Test recording failures
+    blocklist.record_failure("test_primitive_1", "memory")
+    blocklist.record_failure("test_primitive_1", "memory")
+    newly_blocked = blocklist.record_failure("test_primitive_1", "memory")  # Should block on 3rd failure
+    
+    assert newly_blocked, "Should have blocked primitive after 3 failures"
+    assert blocklist.is_blocked("test_primitive_1"), "Primitive should be blocked"
+    
+    # Test filtering
+    library = create_test_library()
+    # Add a blocked primitive to the library for testing
+    library.primitives.append(Primitive(id="test_primitive_1", python_code_str="def transform(grid): return grid"))
+    
+    original_count = len(library.primitives)
+    filtered = blocklist.filter_primitives(library.primitives)
+    
+    assert len(filtered) == original_count - 1, f"Should filter out 1 primitive, got {original_count - len(filtered)}"
+    
+    # Test statistics
+    stats = blocklist.get_statistics()
+    assert stats['total_blocked'] == 1, f"Should have 1 blocked primitive, got {stats['total_blocked']}"
+    assert "test_primitive_1" in stats['blocked_primitives'], "Blocked primitive should be in stats"
+    
+    print(f"  Blocked primitives: {stats['blocked_primitives']}")
+    print(f"  Total failures: {stats['total_failures_recorded']}")
+    
+    print("✓ Blocklist test passed")
+
 async def test_integration():
     """Test the integration with the main logic"""
     print("\nTesting integration...")
@@ -153,9 +195,10 @@ async def main():
     try:
         await test_worker_pool()
         test_shape_filter()
+        test_blocklist()
         await test_integration()
         
-        print("\n✅ All tests completed successfully!")
+        print("\n✓ All tests completed successfully!")
         
     except Exception as e:
         print(f"\n❌ Test failed: {e}")

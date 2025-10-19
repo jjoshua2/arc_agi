@@ -774,16 +774,28 @@ async def _fast_two_pass_select_primitives_async(
     
     start_time = time.perf_counter()
     
-    # Step 1: Shape-based filtering (very fast)
+    # Step 1: Blocklist filtering (fastest)
+    from src.primitive_blocklist import get_primitive_blocklist
+    blocklist = get_primitive_blocklist()
+    
+    blocklist_filter_start = time.perf_counter()
+    blocklist_filtered = blocklist.filter_primitives(list(library.primitives))
+    blocklist_filter_time = time.perf_counter() - blocklist_filter_start
+    
+    if not blocklist_filtered:
+        print(f"[{challenge.id}] Fast sweep: no primitives after blocklist filter")
+        return []
+    
+    # Step 2: Shape-based filtering (very fast)
     shape_filter_start = time.perf_counter()
-    filtered_primitives = filter_primitives_by_shape(list(library.primitives), challenge)
+    filtered_primitives = filter_primitives_by_shape(blocklist_filtered, challenge)
     shape_filter_time = time.perf_counter() - shape_filter_start
     
     if not filtered_primitives:
         print(f"[{challenge.id}] Fast sweep: no primitives after shape filter")
         return []
     
-    # Step 2: First pass using worker pool (single example)
+    # Step 3: First pass using worker pool (single example)
     first_pass_start = time.perf_counter()
     
     # Get or create global pool
@@ -893,7 +905,7 @@ async def _fast_two_pass_select_primitives_async(
     selected_positions = _safe_sample_indices(len(scores), min(k_top, len(scores)), probabilities, ctx=f"fast_sweep:{challenge.id}")
     
     total_time = time.perf_counter() - start_time
-    print(f"[{challenge.id}] Fast sweep: shape={shape_filter_time:.1f}s, first={first_pass_time:.1f}s, second={second_pass_time:.1f}s, total={total_time:.1f}s")
+    print(f"[{challenge.id}] Fast sweep: blocklist={blocklist_filter_time:.3f}s, shape={shape_filter_time:.3f}s, first={first_pass_time:.1f}s, second={second_pass_time:.1f}s, total={total_time:.1f}s")
     
     return [top_candidates[pos] for pos in selected_positions]
 

@@ -405,6 +405,22 @@ from src.trees.experiments import deepseek_v3_1
     except Exception:
         pass
 
+    # Report blocklist statistics
+    try:
+        from src.primitive_blocklist import get_primitive_blocklist
+        blocklist = get_primitive_blocklist()
+        stats = blocklist.get_statistics()
+        if stats['total_blocked'] > 0:
+            print(f"\n=== Primitive Blocklist Report ===")
+            print(f"Total blocked primitives: {stats['total_blocked']}")
+            print(f"Total failures recorded: {stats['total_failures_recorded']}")
+            print(f"Recent failures (1h): {stats['recent_failures']}")
+            if stats['most_problematic']:
+                print(f"Most problematic primitives: {stats['most_problematic'][:5]}")
+            print(f"Blocked IDs: {', '.join(stats['blocked_primitives'][:10])}{'...' if len(stats['blocked_primitives']) > 10 else ''}")
+    except Exception as e:
+        print(f"Warning: failed to generate blocklist report: {e}")
+
     # Cleanup fast sweep resources
     try:
         from src.transform_pool import shutdown_global_pool

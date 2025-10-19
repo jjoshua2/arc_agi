@@ -106,6 +106,18 @@ def _evaluate_primitive_in_worker(job: EvalJob) -> PrimitiveResult:
             eval_time_ms=eval_time_ms
         )
         
+    except (MemoryError, RecursionError, SystemError) as e:
+        # These are worker-killing errors - record them for blocklist
+        eval_time_ms = (time.perf_counter() - start_time) * 1000
+        error_type = type(e).__name__
+        return PrimitiveResult(
+            primitive_id=job.primitive_id,
+            num_correct=0.0,
+            accuracy_score=0.0,
+            success=False,
+            error_msg=f"WORKER_KILLER:{error_type}:{str(e)[:150]}",
+            eval_time_ms=eval_time_ms
+        )
     except Exception as e:
         eval_time_ms = (time.perf_counter() - start_time) * 1000
         return PrimitiveResult(
@@ -322,6 +334,15 @@ class FastTransformPool:
         for future in as_completed(future_to_job):
             try:
                 result = future.result()
+                
+                # Check for worker-killing errors and record for blocklist
+                if not result.success and result.error_msg and result.error_msg.startswith("WORKER_KILLER:"):
+                    from src.primitive_blocklist import get_primitive_blocklist
+                    blocklist = get_primitive_blocklist()
+                    error_parts = result.error_msg.split(":", 2)
+                    error_type = error_parts[1] if len(error_parts) > 1 else "crash"
+                    blocklist.record_failure(result.primitive_id, error_type.lower())
+                
                 results.append(result)
             except Exception as e:
                 job = future_to_job[future]
@@ -337,6 +358,11 @@ class FastTransformPool:
                     except Exception as restart_e:
                         print(f"Failed to recreate worker pool: {restart_e}")
                         raise e  # Original error
+                
+                # Record crashes for blocklist
+                from src.primitive_blocklist import get_primitive_blocklist
+                blocklist = get_primitive_blocklist()
+                blocklist.record_failure(job.primitive_id, "worker_crash")
                 
                 results.append(PrimitiveResult(
                     primitive_id=job.primitive_id,
