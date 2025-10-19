@@ -43,7 +43,9 @@ def _worker_initializer(library_data: bytes):
         # Get actual process ID for logging
         import os
         _WORKER_ID = os.getpid()
-        print(f"🔧 Worker {_WORKER_ID}: Starting initialization...")
+        # Only log first few workers to reduce noise
+        if _WORKER_ID % 1000 == _WORKER_ID or _WORKER_ID < 1005:
+            print(f"🔧 Worker {_WORKER_ID}: Starting initialization...")
         
         # Deserialize library
         import pickle
@@ -54,7 +56,10 @@ def _worker_initializer(library_data: bytes):
         }
         # Set numpy to be quiet
         np.seterr(all='ignore')
-        print(f"✅ Worker {_WORKER_ID}: loaded {len(_PRIMITIVES_CACHE)} primitives")
+        
+        # Only log first few workers to reduce noise
+        if _WORKER_ID % 1000 == _WORKER_ID or _WORKER_ID < 1005:
+            print(f"✅ Worker {_WORKER_ID}: loaded {len(_PRIMITIVES_CACHE)} primitives")
     except Exception as e:
         print(f"❌ Worker {_WORKER_ID} init failed: {e}")
         import traceback
@@ -361,8 +366,8 @@ class FastTransformPool:
                     result = future.result()  # Let primitives run (should be fast ~100-300ms)
                     completed_count += 1
                     
-                    # Progress logging every 100 primitives or 10% of total
-                    if completed_count % min(100, max(1, total_jobs // 10)) == 0 or completed_count == total_jobs:
+                    # Progress logging every 500 primitives or 25% of total
+                    if completed_count % min(500, max(1, total_jobs // 4)) == 0 or completed_count == total_jobs:
                         print(f"Progress: {completed_count}/{total_jobs} primitives evaluated ({completed_count/total_jobs*100:.1f}%)")
                     
                     # Check for worker-killing errors and record for blocklist
