@@ -820,6 +820,7 @@ async def _fast_two_pass_select_primitives_async(
         print(f"[{challenge.id}] Fast sweep: no primitives after shape filter")
         total_time = time.perf_counter() - start_time
         print(f"[{challenge.id}] Fast sweep: shape={shape_filter_time:.1f}s, first=0.0s, second=0.0s, total={total_time:.1f}s")
+        print(f"[{challenge.id}] First pass: 0.0s (0 primitives), Second pass: 0.0s (0 candidates)")
         return []
     
     # Step 3: First pass using worker pool (single example)
