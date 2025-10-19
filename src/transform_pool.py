@@ -451,10 +451,15 @@ def initialize_global_pool(library) -> None:
     print(f"✅ Global transform pool ready")
 
 def get_global_transform_pool(library=None) -> FastTransformPool:
-    """Get the pre-initialized global transform pool"""
+    """Get the global transform pool, initializing on-demand if needed"""
     global _global_pool
     if _global_pool is None:
-        raise RuntimeError("Global pool not initialized! Call initialize_global_pool() at startup first.")
+        if library is None:
+            raise RuntimeError("Global pool not initialized and no library provided for on-demand init")
+        print("🏗️  Initializing global transform pool on-demand")
+        _global_pool = FastTransformPool(library)
+        _global_pool.start()
+        print("✅ Global transform pool ready")
     if not _global_pool._executor:
         print("🔄 Restarting shutdown pool...")
         _global_pool.start()
