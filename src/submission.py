@@ -663,6 +663,7 @@ async def main() -> None:
                     challenge_primitive_lpn_scores=challenge_primitive_lpn_scores,
                     challenge_primitive_accuracy_scores=challenge_primitive_accuracy_scores,
                     aggregate_cost_in_cents=total_cost_in_cents,
+                    on_llm_dispatch=lambda: print(f"[{challenge_id}] calling xai (background)")
                 )
                 first_solutions, first_accuracy = solutions_and_accuracies[0]
                 second_solutions, second_accuracy = solutions_and_accuracies[1]
