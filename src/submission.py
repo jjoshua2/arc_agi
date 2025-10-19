@@ -677,34 +677,32 @@ async def main() -> None:
                         'XAI_API_KEY': os.environ.get('XAI_API_KEY')
                     }
                     
-                    # Execute in separate process
-                    loop = asyncio.get_running_loop()
-                    executor = _get_challenge_executor()
-                    challenge_id, solved, solution_data = await loop.run_in_executor(
-                        executor,
-                        solve_challenge_in_process,
-                        challenge_id, 
-                        challenge_dict,
-                        library_dict,
-                        env_vars
-                    )
-                    
-                    if 'error' not in solution_data:
-                        # Update solutions_d with results
-                        first_solutions = solution_data['first_solutions']
-                        second_solutions = solution_data['second_solutions']
-                        first_accuracy = solution_data['first_accuracy']
-                        second_accuracy = solution_data['second_accuracy']
-                        total_cost_in_cents[0] += solution_data['cost']
-                        
-                        # Store solution data (similar to original try_solve_challenge logic)
+                    if FAST_SWEEP:
+                        # Run in-process to reuse the single global transform pool
+                        from src.trees.experiments import grokfast_dreamcoder_tree
+                        from src.logic import solve_challenge_with_accuracy
+                        solutions_and_accuracies = await solve_challenge_with_accuracy(
+                            challenge=challenge,
+                            tree=grokfast_dreamcoder_tree,
+                            library=library,
+                            use_primitives_weighed_by_score=True,
+                            lpn_model=None,
+                            evaluator=None,
+                            key=None,
+                            challenge_primitive_lpn_scores=challenge_primitive_lpn_scores,
+                            challenge_primitive_accuracy_scores=challenge_primitive_accuracy_scores,
+                            aggregate_cost_in_cents=total_cost_in_cents,
+                        )
+                        first_solutions, first_accuracy = solutions_and_accuracies[0]
+                        second_solutions, second_accuracy = solutions_and_accuracies[1]
+                        solved = (first_accuracy == 1.0 and second_accuracy == 1.0)
+                        # Store results
                         intermediate_solutions_d[challenge_id] = ChallengeSolutionWithAccuracy(
                             attempt_1=first_solutions,
                             attempt_2=second_solutions,
                             accuracy_1=first_accuracy,
                             accuracy_2=second_accuracy,
                         )
-                        
                         solutions_d[challenge_id] = []
                         for i in range(len(challenges[challenge_id].test)):
                             solutions_d[challenge_id].append(
@@ -713,8 +711,46 @@ async def main() -> None:
                                     attempt_2=second_solutions[i] if i < len(second_solutions) else [[0]],
                                 )
                             )
-                    
-                    return (challenge_id, solved, None)
+                        return (challenge_id, solved, None)
+                    else:
+                        # Execute in separate process
+                        loop = asyncio.get_running_loop()
+                        executor = _get_challenge_executor()
+                        challenge_id, solved, solution_data = await loop.run_in_executor(
+                            executor,
+                            solve_challenge_in_process,
+                            challenge_id, 
+                            challenge_dict,
+                            library_dict,
+                            env_vars
+                        )
+                        
+                        if 'error' not in solution_data:
+                            # Update solutions_d with results
+                            first_solutions = solution_data['first_solutions']
+                            second_solutions = solution_data['second_solutions']
+                            first_accuracy = solution_data['first_accuracy']
+                            second_accuracy = solution_data['second_accuracy']
+                            total_cost_in_cents[0] += solution_data['cost']
+                            
+                            # Store solution data (similar to original try_solve_challenge logic)
+                            intermediate_solutions_d[challenge_id] = ChallengeSolutionWithAccuracy(
+                                attempt_1=first_solutions,
+                                attempt_2=second_solutions,
+                                accuracy_1=first_accuracy,
+                                accuracy_2=second_accuracy,
+                            )
+                            
+                            solutions_d[challenge_id] = []
+                            for i in range(len(challenges[challenge_id].test)):
+                                solutions_d[challenge_id].append(
+                                    ChallengeSolution(
+                                        attempt_1=first_solutions[i] if i < len(first_solutions) else [[0]],
+                                        attempt_2=second_solutions[i] if i < len(second_solutions) else [[0]],
+                                    )
+                                )
+                        
+                        return (challenge_id, solved, None)
                     
                 except Exception as e:
                     return (challenge_id, None, e)
