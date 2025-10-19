@@ -36,11 +36,13 @@ class EvalJob:
     train_outputs: List[GRID] 
     timeout_sec: float = 5.0
 
-def _worker_initializer(library_data: bytes, worker_id: int):
+def _worker_initializer(library_data: bytes):
     """Initialize worker process with library cache"""
     global _PRIMITIVES_CACHE, _WORKER_ID
     try:
-        _WORKER_ID = worker_id
+        # Get actual process ID for logging
+        import os
+        _WORKER_ID = os.getpid()
         # Deserialize library
         import pickle
         library = pickle.loads(library_data)
@@ -50,9 +52,9 @@ def _worker_initializer(library_data: bytes, worker_id: int):
         }
         # Set numpy to be quiet
         np.seterr(all='ignore')
-        print(f"Worker {worker_id}: loaded {len(_PRIMITIVES_CACHE)} primitives")
+        print(f"Worker {_WORKER_ID}: loaded {len(_PRIMITIVES_CACHE)} primitives")
     except Exception as e:
-        print(f"Worker {worker_id} init failed: {e}")
+        print(f"Worker {_WORKER_ID} init failed: {e}")
 
 def _evaluate_primitive_in_worker(job: EvalJob) -> PrimitiveResult:
     """Evaluate single primitive in worker process"""
@@ -118,8 +120,21 @@ def _evaluate_primitive_in_worker(job: EvalJob) -> PrimitiveResult:
 def _run_transform_inline(code: str, grid_inputs: List[GRID], timeout_sec: float) -> Optional[List[GRID]]:
     """Run transform function inline without subprocess"""
     try:
-        # Create safe execution environment
+        # Defensive programming: limit code length to prevent memory issues
+        if len(code) > 50000:  # 50KB limit
+            return None
+            
+        # Create safe execution environment with limited builtins
+        safe_builtins = {
+            'len': len, 'range': range, 'enumerate': enumerate,
+            'zip': zip, 'list': list, 'dict': dict, 'set': set,
+            'min': min, 'max': max, 'sum': sum, 'abs': abs,
+            'int': int, 'float': float, 'str': str, 'bool': bool,
+            'True': True, 'False': False, 'None': None,
+        }
+        
         exec_globals = {
+            '__builtins__': safe_builtins,
             'np': np,
             'numpy': np,
             'json': json,
@@ -130,27 +145,52 @@ def _run_transform_inline(code: str, grid_inputs: List[GRID], timeout_sec: float
             'Optional': Optional,
         }
         
-        # Execute the code to define transform function
-        exec(code, exec_globals)
+        # Execute the code to define transform function with timeout simulation
+        try:
+            exec(code, exec_globals)
+        except (MemoryError, RecursionError, SystemError) as e:
+            # These can crash the worker, return None instead
+            return None
+        except Exception:
+            # Other execution errors
+            return None
+            
         transform_func = exec_globals.get('transform')
         
         if not callable(transform_func):
             return None
         
-        # Apply to all inputs
+        # Apply to all inputs with individual timeout/error handling
         results = []
         for grid_input in grid_inputs:
             try:
+                # Basic input validation
+                if not _is_valid_grid(grid_input):
+                    return None
+                    
                 result = transform_func(grid_input)
+                
                 # Validate result
                 if not _is_valid_grid(result):
                     return None
+                    
+                # Size sanity check (prevent memory bombs)
+                if len(result) > 100 or (result and len(result[0]) > 100):
+                    return None
+                    
                 results.append(result)
+            except (MemoryError, RecursionError, SystemError):
+                # Worker-killing errors
+                return None
             except Exception:
+                # Regular transform errors
                 return None
                 
         return results
         
+    except (MemoryError, RecursionError, SystemError):
+        # Top-level worker protection
+        return None
     except Exception:
         return None
 
@@ -228,7 +268,7 @@ class FastTransformPool:
             max_workers=self.num_workers,
             mp_context=ctx,
             initializer=_worker_initializer,
-            initargs=(self._library_data, 0),  # worker_id will be set by executor
+            initargs=(self._library_data,),
             max_tasks_per_child=self.max_tasks_per_child
         )
         
@@ -285,6 +325,19 @@ class FastTransformPool:
                 results.append(result)
             except Exception as e:
                 job = future_to_job[future]
+                # Check if this is a worker crash that killed the pool
+                if "process pool" in str(e).lower() or "terminated abruptly" in str(e).lower():
+                    print(f"Worker pool crashed, attempting to recreate...")
+                    try:
+                        self.shutdown()
+                        self.start()
+                        print("Worker pool recreated successfully")
+                        # Don't return partial results, let caller retry
+                        raise Exception("Worker pool was recreated, please retry")
+                    except Exception as restart_e:
+                        print(f"Failed to recreate worker pool: {restart_e}")
+                        raise e  # Original error
+                
                 results.append(PrimitiveResult(
                     primitive_id=job.primitive_id,
                     num_correct=0.0,
@@ -303,6 +356,10 @@ def get_global_transform_pool(library=None) -> FastTransformPool:
     global _global_pool
     if _global_pool is None and library is not None:
         _global_pool = FastTransformPool(library)
+        _global_pool.start()
+    elif _global_pool and not _global_pool._executor:
+        # Pool exists but is shutdown, restart it
+        print("Restarting existing transform pool...")
         _global_pool.start()
     return _global_pool
 

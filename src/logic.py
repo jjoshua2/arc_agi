@@ -805,13 +805,34 @@ async def _fast_two_pass_select_primitives_async(
     
     for i in range(0, len(primitive_ids), batch_size):
         batch_ids = primitive_ids[i:i+batch_size]
-        batch_results = pool.evaluate_primitives_batch(
-            primitive_ids=batch_ids,
-            train_inputs=train_inputs,
-            train_outputs=train_outputs,
-            timeout_per_primitive=5.0
-        )
-        first_pass_results.extend(batch_results)
+        
+        # Retry logic for pool recreation
+        max_retries = 2
+        for retry in range(max_retries + 1):
+            try:
+                batch_results = pool.evaluate_primitives_batch(
+                    primitive_ids=batch_ids,
+                    train_inputs=train_inputs,
+                    train_outputs=train_outputs,
+                    timeout_per_primitive=5.0
+                )
+                first_pass_results.extend(batch_results)
+                break  # Success, exit retry loop
+            except Exception as e:
+                if "please retry" in str(e).lower() and retry < max_retries:
+                    print(f"[{challenge.id}] Retrying batch {i//batch_size + 1} after pool recreation (attempt {retry + 2}/{max_retries + 1})")
+                    # Get the pool again (it should be recreated)
+                    pool = get_global_transform_pool(library)
+                    continue
+                else:
+                    # Final failure or non-recoverable error
+                    print(f"[{challenge.id}] Batch {i//batch_size + 1} failed after {retry + 1} attempts: {e}")
+                    # Add failure results for this batch
+                    for bid in batch_ids:
+                        first_pass_results.append(type('Result', (), {
+                            'primitive_id': bid, 'success': False, 'num_correct': 0.0, 'accuracy_score': 0.0
+                        })())
+                    break
     
     first_pass_time = time.perf_counter() - first_pass_start
     
