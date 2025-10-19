@@ -33,17 +33,15 @@ def recommend_settings():
         return
     
     if available_gb > 20:
-        print("High memory system - can use aggressive settings:")
-        print("export ARC_FAST_SWEEP_WORKERS=4")
-        print("export ARC_FAST_SWEEP_BATCH_SIZE=50")
+        print("High memory system - defaults should work fine:")
+        print("# No environment variables needed - uses 4 workers, streaming evaluation")
+        print("# ARC_FAST_SWEEP_WORKERS=4 (default)")
     elif available_gb > 10:
-        print("Medium memory system - balanced settings:")
-        print("export ARC_FAST_SWEEP_WORKERS=3") 
-        print("export ARC_FAST_SWEEP_BATCH_SIZE=25")
+        print("Medium memory system - defaults should work:")
+        print("# ARC_FAST_SWEEP_WORKERS=4 (default)")
     elif available_gb > 5:
-        print("Low memory system - conservative settings:")
+        print("Lower memory system - reduce workers:")
         print("export ARC_FAST_SWEEP_WORKERS=2")
-        print("export ARC_FAST_SWEEP_BATCH_SIZE=10")
     else:
         print("Very low memory - disable fast sweep:")
         print("export ARC_FAST_SWEEP=0")

@@ -829,70 +829,43 @@ async def _fast_two_pass_select_primitives_async(
     # Get primitive IDs
     primitive_ids = [getattr(p, 'id', f'prim_{i}') for i, p in enumerate(filtered_primitives)]
     
-    # Evaluate in smaller batches to control memory usage on Kaggle
-    # Configurable batch size for memory management
-    try:
-        batch_size = max(1, int(os.environ.get("ARC_FAST_SWEEP_BATCH_SIZE", "10")))
-    except:
-        batch_size = 25  # Safe default
-    
+    # Stream all primitives through worker pool (no batching)
     first_pass_results = []
     
-    for i in range(0, len(primitive_ids), batch_size):
-        batch_ids = primitive_ids[i:i+batch_size]
-        
-        # Memory management: check usage and adapt if needed
-        try:
-            import psutil
-            memory_mb = psutil.Process().memory_info().rss / 1024 / 1024
-            # Configurable memory threshold
+    try:
+        # Use the pool's streaming batch evaluation (all primitives at once)
+        first_pass_results = pool.evaluate_primitives_batch(
+            primitive_ids=primitive_ids,
+            train_inputs=train_inputs,
+            train_outputs=train_outputs,
+            timeout_per_primitive=5.0
+        )
+    except Exception as e:
+        if "please retry" in str(e).lower():
+            print(f"[{challenge.id}] Pool recreation occurred, retrying full evaluation")
+            # Get the pool again (it should be recreated)
+            pool = get_global_transform_pool(library)
             try:
-                memory_threshold_mb = int(os.environ.get("ARC_MEMORY_THRESHOLD_MB", "8000"))
-            except:
-                memory_threshold_mb = 8000
-            
-            if memory_mb > memory_threshold_mb:
-                print(f"[{challenge.id}] High memory usage: {memory_mb:.1f}MB, processing smaller batches")
-                # Process items individually to reduce memory pressure
-                for single_id in batch_ids:
-                    single_results = pool.evaluate_primitives_batch(
-                        primitive_ids=[single_id],
-                        train_inputs=train_inputs,
-                        train_outputs=train_outputs,
-                        timeout_per_primitive=5.0
-                    )
-                    first_pass_results.extend(single_results)
-                continue  # Skip normal batch processing
-        except (ImportError, Exception):
-            pass  # Continue normally if psutil unavailable or fails
-        
-        # Retry logic for pool recreation
-        max_retries = 2
-        for retry in range(max_retries + 1):
-            try:
-                batch_results = pool.evaluate_primitives_batch(
-                    primitive_ids=batch_ids,
+                first_pass_results = pool.evaluate_primitives_batch(
+                    primitive_ids=primitive_ids,
                     train_inputs=train_inputs,
                     train_outputs=train_outputs,
                     timeout_per_primitive=5.0
                 )
-                first_pass_results.extend(batch_results)
-                break  # Success, exit retry loop
-            except Exception as e:
-                if "please retry" in str(e).lower() and retry < max_retries:
-                    print(f"[{challenge.id}] Retrying batch {i//batch_size + 1} after pool recreation (attempt {retry + 2}/{max_retries + 1})")
-                    # Get the pool again (it should be recreated)
-                    pool = get_global_transform_pool(library)
-                    continue
-                else:
-                    # Final failure or non-recoverable error
-                    print(f"[{challenge.id}] Batch {i//batch_size + 1} failed after {retry + 1} attempts: {e}")
-                    # Add failure results for this batch
-                    for bid in batch_ids:
-                        first_pass_results.append(type('Result', (), {
-                            'primitive_id': bid, 'success': False, 'num_correct': 0.0, 'accuracy_score': 0.0
-                        })())
-                    break
+            except Exception as e2:
+                print(f"[{challenge.id}] Full evaluation failed after pool recreation: {e2}")
+                # Create failure results for all primitives
+                for pid in primitive_ids:
+                    first_pass_results.append(type('Result', (), {
+                        'primitive_id': pid, 'success': False, 'num_correct': 0.0, 'accuracy_score': 0.0
+                    })())
+        else:
+            print(f"[{challenge.id}] First pass evaluation failed: {e}")
+            # Create failure results for all primitives
+            for pid in primitive_ids:
+                first_pass_results.append(type('Result', (), {
+                    'primitive_id': pid, 'success': False, 'num_correct': 0.0, 'accuracy_score': 0.0
+                })())
     
     first_pass_time = time.perf_counter() - first_pass_start
     
@@ -955,10 +928,10 @@ async def _fast_two_pass_select_primitives_async(
     total_time = time.perf_counter() - start_time
     print(f"[{challenge.id}] Fast sweep: blocklist={blocklist_filter_time:.3f}s, shape={shape_filter_time:.3f}s, first={first_pass_time:.1f}s, second={second_pass_time:.1f}s, total={total_time:.1f}s")
     
-    # Explicit cleanup to prevent memory leaks
+    # Light cleanup only after challenges (not after each primitive)
     try:
         import gc
-        gc.collect()  # Force garbage collection
+        gc.collect()
     except:
         pass
     
