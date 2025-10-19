@@ -601,7 +601,7 @@ async def main() -> None:
     # Defaults favor single active challenge when fast sweep is on
     bs_env = os.environ.get("SUBMISSION_BATCH_SIZE")
     try:
-        default_round1 = 1 if FAST_SWEEP else 5
+        default_round1 = 2 if FAST_SWEEP else 5
         round1_stream_size = max(1, int(bs_env)) if bs_env else default_round1
     except Exception:
         round1_stream_size = 1 if FAST_SWEEP else 5
@@ -609,7 +609,7 @@ async def main() -> None:
     # Batch size for rounds 2+
     large_bs_env = os.environ.get("SUBMISSION_LARGE_BATCH_SIZE")
     try:
-        default_later = 1 if FAST_SWEEP else len(eval_ids_to_test)
+        default_later = 2 if FAST_SWEEP else len(eval_ids_to_test)
         later_rounds_batch_size = max(round1_stream_size, int(large_bs_env)) if large_bs_env else default_later
     except Exception:
         later_rounds_batch_size = 1 if FAST_SWEEP else len(eval_ids_to_test)
