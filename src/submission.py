@@ -379,8 +379,8 @@ async def main() -> None:
     def _get_challenge_executor() -> ProcessPoolExecutor:
         nonlocal _challenge_executor
         if _challenge_executor is None:
-            # Keep primitive evaluation to 5 processes, but allow more challenges in pipeline
-            max_workers = min(5, max(4, round1_batch_size))
+            # Keep primitive evaluation to 5 processes for optimal CPU usage
+            max_workers = 5
             _challenge_executor = ProcessPoolExecutor(max_workers=max_workers)
         return _challenge_executor
     
@@ -562,24 +562,24 @@ async def main() -> None:
             print("WARNING: invalid SUBMISSION_ATTEMPTS; ignoring")
             logfire.debug("WARNING: invalid SUBMISSION_ATTEMPTS; ignoring")
 
-    # Dynamic batch sizing strategy:
-    # Round 1: Small batches (5 at a time) through ALL challenges to start LLM calls quickly
-    # Round 2+: Large batches (all at once) for maximum parallelism
+    # Streaming approach: maintain constant number of active challenges
+    # Round 1: Stream 5 challenges continuously (optimal for 4-core CPU)
+    # Round 2+: Process all at once for maximum parallelism  
     bs_env = os.environ.get("SUBMISSION_BATCH_SIZE")
     try:
-        round1_batch_size = max(1, int(bs_env)) if bs_env else 20  # Increased from 5 to keep pipeline full
+        round1_stream_size = max(1, int(bs_env)) if bs_env else 5  # Always keep 5 active
     except Exception:
-        round1_batch_size = 20
+        round1_stream_size = 5
     
     # Larger batch size for rounds 2+ (can be overridden)
     large_bs_env = os.environ.get("SUBMISSION_LARGE_BATCH_SIZE")
     try:
-        later_rounds_batch_size = max(round1_batch_size, int(large_bs_env)) if large_bs_env else len(eval_ids_to_test)
+        later_rounds_batch_size = max(round1_stream_size, int(large_bs_env)) if large_bs_env else len(eval_ids_to_test)
     except Exception:
         later_rounds_batch_size = len(eval_ids_to_test)  # Process all at once in later rounds
     
-    print(f"Using dynamic batch sizing: round 1 = {round1_batch_size} at a time, round 2+ = {later_rounds_batch_size} all at once")
-    logfire.debug(f"Dynamic batch sizing: round 1 = {round1_batch_size} at a time, round 2+ = {later_rounds_batch_size} all at once")
+    print(f"Using streaming approach: round 1 = {round1_stream_size} active continuously, round 2+ = {later_rounds_batch_size} all at once")
+    logfire.debug(f"Streaming approach: round 1 = {round1_stream_size} active continuously, round 2+ = {later_rounds_batch_size} all at once")
 
     disable_low_solve_stop_env = os.environ.get("SUBMISSION_DISABLE_LOW_SOLVE_STOP", "0").lower()
     low_solve_stop_enabled = disable_low_solve_stop_env not in {"1", "true", "yes"}
@@ -598,10 +598,11 @@ async def main() -> None:
         solved_before_round_snapshot = set(solved_challenges)
         round_new_solved_ids: set[str] = set()
 
-        # Dynamic batch sizing: small batches for round 1, large batches for rounds 2+
-        current_batch_size = round1_batch_size if i == 0 else later_rounds_batch_size
-        print(f"Round {i+1}: using batch size {current_batch_size}")
-        logfire.debug(f"Round {i+1}: using batch size {current_batch_size}")
+        # Streaming vs batch approach based on round
+        current_batch_size = round1_stream_size if i == 0 else later_rounds_batch_size
+        approach = "streaming" if i == 0 else "batch"
+        print(f"Round {i+1}: using {approach} approach with {current_batch_size} {'active' if i == 0 else 'total'}")
+        logfire.debug(f"Round {i+1}: {approach} approach, size {current_batch_size}")
         
         # Sliding window concurrency: keep up to current_batch_size tasks in-flight
         sem = asyncio.Semaphore(current_batch_size)
