@@ -169,6 +169,50 @@ class PrimitiveBlocklist:
             'blocked_primitives': list(self.blocked_primitives)
         }
     
+    def get_detailed_report(self) -> Dict:
+        """Get detailed report with failure reasons and timestamps"""
+        current_time = time.time()
+        detailed_primitives = []
+        
+        for primitive_id in self.blocked_primitives:
+            failure_count = self.failure_counts.get(primitive_id, 0)
+            timestamps = self.failure_history.get(primitive_id, [])
+            
+            # Count recent failures
+            recent_failures = [ts for ts in timestamps if current_time - ts < self.time_window]
+            
+            # Get time since first and last failure
+            if timestamps:
+                first_failure = min(timestamps)
+                last_failure = max(timestamps)
+                time_since_first = (current_time - first_failure) / 3600  # hours
+                time_since_last = (current_time - last_failure) / 60      # minutes
+            else:
+                time_since_first = time_since_last = 0
+            
+            detailed_primitives.append({
+                'id': primitive_id,
+                'total_failures': failure_count,
+                'recent_failures': len(recent_failures),
+                'time_since_first_failure_hours': round(time_since_first, 1),
+                'time_since_last_failure_minutes': round(time_since_last, 1),
+                'blocked_at': max(timestamps) if timestamps else current_time
+            })
+        
+        # Sort by total failures (most problematic first)
+        detailed_primitives.sort(key=lambda x: x['total_failures'], reverse=True)
+        
+        return {
+            'summary': self.get_statistics(),
+            'detailed_primitives': detailed_primitives,
+            'session_impact': {
+                'primitives_avoided': len(self.blocked_primitives),
+                'estimated_crashes_prevented': sum(self.failure_counts[pid] for pid in self.blocked_primitives if pid in self.failure_counts),
+                'time_window_hours': self.time_window / 3600,
+                'crash_threshold': self.crash_threshold
+            }
+        }
+    
     def unblock_primitive(self, primitive_id: str) -> bool:
         """
         Manually unblock a primitive (for testing/debugging)

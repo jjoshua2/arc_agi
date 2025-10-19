@@ -75,11 +75,35 @@ Loaded primitive blocklist: 15 blocked primitives
 Started transform pool: 4 workers, forkserver context
 Cleaned up transform pool
 
-=== Primitive Blocklist Report ===
-Total blocked primitives: 23
+============================================================
+🚫 PRIMITIVE REMOVAL REPORT
+============================================================
+Total primitives blocked: 23
 Total failures recorded: 89
-Recent failures (1h): 12
-Most problematic primitives: [('bad_func_456', 8), ('memory_hog', 6)]
+Estimated crashes prevented: 67
+Time saved by avoiding known-bad primitives: ~33.5 seconds
+
+📋 REMOVED PRIMITIVES (sorted by failure count):
+------------------------------------------------------------
+ID                   Failures Recent First Seen Last Seen 
+------------------------------------------------------------
+bad_func_456         8        3      2.1h       15.2m     
+memory_hog           6        2      3.5h       45.1m     
+crash_generator      5        1      1.2h       120.5m    
+... and 20 more blocked primitives
+
+🔥 WORST OFFENDERS (total failures):
+  1. bad_func_456: 8 failures
+  2. memory_hog: 6 failures
+  3. crash_generator: 5 failures
+
+💡 RECOMMENDATIONS:
+  • Library quality issue: 67 crashes prevented
+  • Review primitive generation process to reduce error-prone functions
+
+📁 Detailed logs saved to: primitive_blocklist.json
+   Use 'python manage_blocklist.py export' for analysis
+============================================================
 ```
 
 ## Kaggle notebook tips

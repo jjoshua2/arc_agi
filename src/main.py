@@ -405,19 +405,59 @@ from src.trees.experiments import deepseek_v3_1
     except Exception:
         pass
 
-    # Report blocklist statistics
+    # Report detailed blocklist statistics
     try:
         from src.primitive_blocklist import get_primitive_blocklist
         blocklist = get_primitive_blocklist()
-        stats = blocklist.get_statistics()
-        if stats['total_blocked'] > 0:
-            print(f"\n=== Primitive Blocklist Report ===")
-            print(f"Total blocked primitives: {stats['total_blocked']}")
-            print(f"Total failures recorded: {stats['total_failures_recorded']}")
-            print(f"Recent failures (1h): {stats['recent_failures']}")
-            if stats['most_problematic']:
-                print(f"Most problematic primitives: {stats['most_problematic'][:5]}")
-            print(f"Blocked IDs: {', '.join(stats['blocked_primitives'][:10])}{'...' if len(stats['blocked_primitives']) > 10 else ''}")
+        report = blocklist.get_detailed_report()
+        
+        if report['summary']['total_blocked'] > 0:
+            print(f"\n" + "=" * 60)
+            print(f"🚫 PRIMITIVE REMOVAL REPORT")
+            print(f"=" * 60)
+            
+            # Summary stats
+            summary = report['summary']
+            impact = report['session_impact']
+            print(f"Total primitives blocked: {summary['total_blocked']}")
+            print(f"Total failures recorded: {summary['total_failures_recorded']}")
+            print(f"Estimated crashes prevented: {impact['estimated_crashes_prevented']}")
+            print(f"Time saved by avoiding known-bad primitives: ~{impact['estimated_crashes_prevented'] * 0.5:.1f} seconds")
+            
+            # Detailed breakdown of removed primitives
+            print(f"\n📋 REMOVED PRIMITIVES (sorted by failure count):")
+            print(f"{'-' * 60}")
+            print(f"{'ID':<20} {'Failures':<8} {'Recent':<6} {'First Seen':<10} {'Last Seen':<10}")
+            print(f"{'-' * 60}")
+            
+            for primitive in report['detailed_primitives'][:20]:  # Show top 20
+                print(f"{primitive['id']:<20} {primitive['total_failures']:<8} {primitive['recent_failures']:<6} "
+                      f"{primitive['time_since_first_failure_hours']:<10.1f}h {primitive['time_since_last_failure_minutes']:<10.1f}m")
+            
+            if len(report['detailed_primitives']) > 20:
+                remaining = len(report['detailed_primitives']) - 20
+                print(f"... and {remaining} more blocked primitives")
+            
+            # Top offenders
+            if summary['most_problematic']:
+                print(f"\n🔥 WORST OFFENDERS (total failures):")
+                for i, (primitive_id, count) in enumerate(summary['most_problematic'][:5], 1):
+                    print(f"  {i}. {primitive_id}: {count} failures")
+            
+            # Recommendations
+            print(f"\n💡 RECOMMENDATIONS:")
+            if impact['primitives_avoided'] > 10:
+                print(f"  • Consider cleaning library: {impact['primitives_avoided']} problematic primitives detected")
+            if impact['estimated_crashes_prevented'] > 50:
+                print(f"  • Library quality issue: {impact['estimated_crashes_prevented']} crashes prevented")
+                print(f"  • Review primitive generation process to reduce error-prone functions")
+            
+            print(f"\n📁 Detailed logs saved to: primitive_blocklist.json")
+            print(f"   Use 'python manage_blocklist.py export' for analysis")
+            print(f"=" * 60)
+        else:
+            print(f"✅ No problematic primitives detected - library quality looks good!")
+            
     except Exception as e:
         print(f"Warning: failed to generate blocklist report: {e}")
 
