@@ -357,53 +357,53 @@ class FastTransformPool:
         
         try:
             for future in as_completed(future_to_job, timeout=timeout_seconds):
-            try:
-                result = future.result()  # Let primitives run (should be fast ~100-300ms)
-                completed_count += 1
-                
-                # Progress logging every 100 primitives or 10% of total
-                if completed_count % min(100, max(1, total_jobs // 10)) == 0 or completed_count == total_jobs:
-                    print(f"Progress: {completed_count}/{total_jobs} primitives evaluated ({completed_count/total_jobs*100:.1f}%)")
-                
-                # Check for worker-killing errors and record for blocklist
-                if not result.success and result.error_msg and result.error_msg.startswith("WORKER_KILLER:"):
+                try:
+                    result = future.result()  # Let primitives run (should be fast ~100-300ms)
+                    completed_count += 1
+                    
+                    # Progress logging every 100 primitives or 10% of total
+                    if completed_count % min(100, max(1, total_jobs // 10)) == 0 or completed_count == total_jobs:
+                        print(f"Progress: {completed_count}/{total_jobs} primitives evaluated ({completed_count/total_jobs*100:.1f}%)")
+                    
+                    # Check for worker-killing errors and record for blocklist
+                    if not result.success and result.error_msg and result.error_msg.startswith("WORKER_KILLER:"):
+                        from src.primitive_blocklist import get_primitive_blocklist
+                        blocklist = get_primitive_blocklist()
+                        error_parts = result.error_msg.split(":", 2)
+                        error_type = error_parts[1] if len(error_parts) > 1 else "crash"
+                        blocklist.record_failure(result.primitive_id, error_type.lower())
+                        print(f"⚠️  Blocked primitive {result.primitive_id} due to {error_type}")
+                    
+                    results.append(result)
+                    
+                except Exception as e:
+                    job = future_to_job[future]
+                    # Check if this is a worker crash that killed the pool
+                    if "process pool" in str(e).lower() or "terminated abruptly" in str(e).lower():
+                        print(f"Worker pool crashed, attempting to recreate...")
+                        try:
+                            self.shutdown()
+                            self.start()
+                            print("Worker pool recreated successfully")
+                            # Don't return partial results, let caller retry
+                            raise Exception("Worker pool was recreated, please retry")
+                        except Exception as restart_e:
+                            print(f"Failed to recreate worker pool: {restart_e}")
+                            raise e  # Original error
+                    
+                    # Record crashes for blocklist
+                    print(f"🚨 Worker crashed during primitive {job.primitive_id}: {e}")
                     from src.primitive_blocklist import get_primitive_blocklist
                     blocklist = get_primitive_blocklist()
-                    error_parts = result.error_msg.split(":", 2)
-                    error_type = error_parts[1] if len(error_parts) > 1 else "crash"
-                    blocklist.record_failure(result.primitive_id, error_type.lower())
-                    print(f"⚠️  Blocked primitive {result.primitive_id} due to {error_type}")
-                
-                results.append(result)
-                
-            except Exception as e:
-                job = future_to_job[future]
-                # Check if this is a worker crash that killed the pool
-                if "process pool" in str(e).lower() or "terminated abruptly" in str(e).lower():
-                    print(f"Worker pool crashed, attempting to recreate...")
-                    try:
-                        self.shutdown()
-                        self.start()
-                        print("Worker pool recreated successfully")
-                        # Don't return partial results, let caller retry
-                        raise Exception("Worker pool was recreated, please retry")
-                    except Exception as restart_e:
-                        print(f"Failed to recreate worker pool: {restart_e}")
-                        raise e  # Original error
-                
-                # Record crashes for blocklist
-                print(f"🚨 Worker crashed during primitive {job.primitive_id}: {e}")
-                from src.primitive_blocklist import get_primitive_blocklist
-                blocklist = get_primitive_blocklist()
-                blocklist.record_failure(job.primitive_id, "worker_crash")
-                
-                results.append(PrimitiveResult(
-                    primitive_id=job.primitive_id,
-                    num_correct=0.0,
-                    accuracy_score=0.0,
-                    success=False,
-                    error_msg=f"Worker exception: {str(e)[:100]}"
-                ))
+                    blocklist.record_failure(job.primitive_id, "worker_crash")
+                    
+                    results.append(PrimitiveResult(
+                        primitive_id=job.primitive_id,
+                        num_correct=0.0,
+                        accuracy_score=0.0,
+                        success=False,
+                        error_msg=f"Worker exception: {str(e)[:100]}"
+                    ))
         
         except concurrent.futures.TimeoutError:
             print(f"❌ TIMEOUT: Only completed {completed_count}/{total_jobs} primitives in {timeout_seconds}s")
@@ -432,13 +432,22 @@ _global_pool: Optional[FastTransformPool] = None
 def get_global_transform_pool(library=None) -> FastTransformPool:
     """Get or create global transform pool"""
     global _global_pool
-    if _global_pool is None and library is not None:
-        _global_pool = FastTransformPool(library)
-        _global_pool.start()
-    elif _global_pool and not _global_pool._executor:
+    
+    if _global_pool is None:
+        if library is not None:
+            print(f"🏗️  Creating NEW global transform pool (first time)")
+            _global_pool = FastTransformPool(library)
+            _global_pool.start()
+        else:
+            print("⚠️  Cannot create pool: no library provided")
+            return None
+    elif not _global_pool._executor:
         # Pool exists but is shutdown, restart it
-        print("Restarting existing transform pool...")
+        print("🔄 Restarting existing transform pool...")
         _global_pool.start()
+    else:
+        print(f"♻️  Reusing existing transform pool (workers should be alive)")
+    
     return _global_pool
 
 def shutdown_global_pool():
