@@ -455,8 +455,10 @@ class Attempt(BaseModel):
         from src.llms import parse_2d_arrays_from_string, parse_python_backticks
         from src.run_python import run_python_transform_async
 
-        print(f"[{challenge.id}] LLM response: {llm_response}")
-        print(f"[{challenge.id}] returns_python: {returns_python}")
+        verbose_mode = os.environ.get("SUBMISSION_VERBOSE", "0") == "1"
+        if verbose_mode:
+            print(f"[{challenge.id}] LLM response: {llm_response}")
+            print(f"[{challenge.id}] returns_python: {returns_python}")
 
         if returns_python:
             python_str = parse_python_backticks(llm_response)

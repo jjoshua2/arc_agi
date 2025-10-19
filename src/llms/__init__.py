@@ -361,7 +361,9 @@ async def get_next_message_deepseek(
             start = time.time()
             logfire.debug(f"[{request_id}] calling deepseek{b10_str}...")
             if not params.get("stream", None):
-                print("calling")
+                verbose_mode = os.environ.get("SUBMISSION_VERBOSE", "0") == "1"
+                if verbose_mode:
+                    print("calling")
                 message = await deepseek_client.chat.completions.create(**params)
                 cached_tokens = message.usage.prompt_tokens_details.cached_tokens
                 usage = ModelUsage(
@@ -397,7 +399,9 @@ async def get_next_message_deepseek(
                             output_tokens=chunk.usage.completion_tokens,
                         )
                 final_content = remove_thinking(text=final_content).strip()
-                print(final_content)
+                verbose_mode = os.environ.get("SUBMISSION_VERBOSE", "0") == "1"
+                if verbose_mode:
+                    print(final_content)
                 # TODO should i parse out thinking tags? probably
 
             took_ms = (time.time() - start) * 1000
