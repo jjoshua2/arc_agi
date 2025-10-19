@@ -439,17 +439,32 @@ import threading
 # Global pool instance (singleton pattern for notebook compatibility)
 _global_pool: Optional[FastTransformPool] = None
 _pool_lock = threading.Lock()  # Thread-safe pool creation
+_global_library_hash: Optional[str] = None  # Track library content hash
+
+def _get_library_hash(library) -> str:
+    """Get a hash of the library content for comparison"""
+    try:
+        import hashlib
+        # Use primitive count and first/last primitive IDs as a simple hash
+        primitive_ids = [getattr(p, 'id', f'prim_{i}') for i, p in enumerate(library.primitives)]
+        content = f"{len(primitive_ids)}:{primitive_ids[0] if primitive_ids else ''}:{primitive_ids[-1] if primitive_ids else ''}"
+        return hashlib.md5(content.encode()).hexdigest()[:8]
+    except Exception:
+        return "unknown"
 
 def get_global_transform_pool(library=None) -> FastTransformPool:
-    """Get or create global transform pool (thread-safe)"""
-    global _global_pool
+    """Get or create global transform pool (thread-safe, reuses same library)"""
+    global _global_pool, _global_library_hash
     
     with _pool_lock:
+        current_library_hash = _get_library_hash(library) if library else None
+        
         if _global_pool is None:
             if library is not None:
                 print(f"🏗️  Creating NEW global transform pool (first time)")
                 _global_pool = FastTransformPool(library)
                 _global_pool.start()
+                _global_library_hash = current_library_hash
             else:
                 print("⚠️  Cannot create pool: no library provided")
                 return None
@@ -457,11 +472,16 @@ def get_global_transform_pool(library=None) -> FastTransformPool:
             # Pool exists but is shutdown, restart it
             print("🔄 Restarting existing transform pool...")
             _global_pool.start()
+        elif current_library_hash and current_library_hash != _global_library_hash:
+            # Library has changed, recreate pool
+            print(f"🔄 Library changed (hash {_global_library_hash} -> {current_library_hash}), recreating pool...")
+            _global_pool.shutdown()
+            _global_pool = FastTransformPool(library)
+            _global_pool.start()
+            _global_library_hash = current_library_hash
         else:
-            # Only show reuse message occasionally to reduce noise
-            import random
-            if random.random() < 0.1:  # 10% chance
-                print(f"♻️  Reusing existing transform pool (workers should be alive)")
+            # Pool exists and library is the same - reuse silently
+            pass
     
     return _global_pool
 
