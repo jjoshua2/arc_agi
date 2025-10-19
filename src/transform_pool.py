@@ -163,13 +163,16 @@ def _evaluate_primitive_in_worker(job: EvalJob) -> PrimitiveResult:
 
 def _evaluate_primitives_chunk_in_worker(primitive_ids, train_inputs, train_outputs, timeout_sec, ctx_hash: Optional[str] = None):
     """Evaluate a chunk of primitive IDs inside a single worker call"""
-    # If no grids provided, ensure worker context exists
+    # Ensure worker has correct batch context; if not, set it when grids are provided
     global _BATCH_HASH
-    if (train_inputs is None or train_outputs is None) and (ctx_hash is not None) and (_BATCH_HASH != ctx_hash):
-        raise RuntimeError("Worker batch context hash mismatch/missing")
+    if ctx_hash is not None and _BATCH_HASH != ctx_hash:
+        if train_inputs is not None and train_outputs is not None:
+            _worker_set_batch_context(train_inputs, train_outputs, ctx_hash)
+        else:
+            raise RuntimeError("Worker batch context hash mismatch/missing")
     results: list[PrimitiveResult] = []
     for pid in primitive_ids:
-        job = EvalJob(primitive_id=pid, train_inputs=train_inputs, train_outputs=train_outputs, timeout_sec=timeout_sec)
+        job = EvalJob(primitive_id=pid, train_inputs=None, train_outputs=None, timeout_sec=timeout_sec)
         res = _evaluate_primitive_in_worker(job)
         results.append(res)
     return results
@@ -417,7 +420,8 @@ class FastTransformPool:
         # Submit chunk jobs with timing
         submit_start = time.perf_counter()
         future_to_chunk: Dict[Any, List[str]] = {
-            self._executor.submit(_evaluate_primitives_chunk_in_worker, chunk, None, None, timeout_per_primitive, ctx_hash): chunk
+            # Send grids to let any worker set its context on first use
+            self._executor.submit(_evaluate_primitives_chunk_in_worker, chunk, train_inputs, train_outputs, timeout_per_primitive, ctx_hash): chunk
             for chunk in chunks
         }
         submit_time = time.perf_counter() - submit_start
@@ -506,9 +510,9 @@ class FastTransformPool:
                         self.start()
                         # Re-broadcast context after restart
                         self._ensure_batch_context(train_inputs, train_outputs, ctx_hash)
-                        # Resubmit
+                        # Resubmit (send grids so workers can reset context)
                         future_to_chunk = {
-                            self._executor.submit(_evaluate_primitives_chunk_in_worker, chunk, None, None, timeout_per_primitive, ctx_hash): chunk
+                            self._executor.submit(_evaluate_primitives_chunk_in_worker, chunk, train_inputs, train_outputs, timeout_per_primitive, ctx_hash): chunk
                             for chunk in remaining_chunks
                         }
                         last_progress = time.perf_counter()
