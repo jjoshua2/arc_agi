@@ -421,7 +421,7 @@ class FastTransformPool:
         # Compute context hash for per-challenge state
         ctx_hash = self._compute_ctx_hash(train_inputs, train_outputs)
         # Optionally restart pool per challenge to avoid lingering state
-        restart_per_challenge = os.environ.get("ARC_FAST_SWEEP_RESTART_PER_CHALLENGE", "1") == "1"
+        restart_per_challenge = os.environ.get("ARC_FAST_SWEEP_RESTART_PER_CHALLENGE", "0") == "1"
         if restart_per_challenge and (self._last_ctx_hash is not None) and (self._last_ctx_hash != ctx_hash):
             print("🔄 New challenge detected; restarting transform pool to reset worker state")
             try:
