@@ -643,7 +643,47 @@ async def main() -> None:
         # Sliding window concurrency: keep up to current_batch_size tasks in-flight
         sem = asyncio.Semaphore(current_batch_size)
         processed = 0
-
+        
+        # Track background LLM tasks so we don't block fast-sweep concurrency
+        llm_tasks: set[asyncio.Task] = set()
+        
+        async def _llm_stage(challenge_id: str):
+            try:
+                from src.trees.experiments import grokfast_dreamcoder_tree
+                from src.logic import solve_challenge_with_accuracy
+                challenge_obj = challenges[challenge_id]
+                solutions_and_accuracies = await solve_challenge_with_accuracy(
+                    challenge=challenge_obj,
+                    tree=grokfast_dreamcoder_tree,
+                    library=library,
+                    use_primitives_weighed_by_score=True,
+                    lpn_model=None,
+                    evaluator=None,
+                    key=None,
+                    challenge_primitive_lpn_scores=challenge_primitive_lpn_scores,
+                    challenge_primitive_accuracy_scores=challenge_primitive_accuracy_scores,
+                    aggregate_cost_in_cents=total_cost_in_cents,
+                )
+                first_solutions, first_accuracy = solutions_and_accuracies[0]
+                second_solutions, second_accuracy = solutions_and_accuracies[1]
+                # Store results
+                intermediate_solutions_d[challenge_id] = ChallengeSolutionWithAccuracy(
+                    attempt_1=first_solutions,
+                    attempt_2=second_solutions,
+                    accuracy_1=first_accuracy,
+                    accuracy_2=second_accuracy,
+                )
+                solutions_d[challenge_id] = []
+                for i in range(len(challenges[challenge_id].test)):
+                    solutions_d[challenge_id].append(
+                        ChallengeSolution(
+                            attempt_1=first_solutions[i] if i < len(first_solutions) else [[0]],
+                            attempt_2=second_solutions[i] if i < len(second_solutions) else [[0]],
+                        )
+                    )
+            except Exception as e:
+                logfire.debug(f"[{challenge_id}] LLM stage error: {e}")
+            
         async def bounded_try(challenge_id: str):
             async with sem:
                 try:
@@ -654,7 +694,7 @@ async def main() -> None:
                     challenge_dict = {
                         'id': challenge_id,
                         'train': [{'input': t.input, 'output': t.output} for t in challenges[challenge_id].train],
-                        'test': [{'input': t.input, 'output': t.output} for t in challenges[challenge_id].test]
+                        'test': [{'input': t.input, 'output': t.get('output')} for t in challenges[challenge_id].test]
                     }
                     
                     library_dict = {
@@ -678,42 +718,11 @@ async def main() -> None:
                     }
                     
                     if FAST_SWEEP:
-                        # Run in-process to reuse the single global transform pool
-                        from src.trees.experiments import grokfast_dreamcoder_tree
-                        from src.logic import solve_challenge_with_accuracy
-                        # Use existing challenge object from in-memory dict
-                        challenge_obj = challenges[challenge_id]
-                        solutions_and_accuracies = await solve_challenge_with_accuracy(
-                            challenge=challenge_obj,
-                            tree=grokfast_dreamcoder_tree,
-                            library=library,
-                            use_primitives_weighed_by_score=True,
-                            lpn_model=None,
-                            evaluator=None,
-                            key=None,
-                            challenge_primitive_lpn_scores=challenge_primitive_lpn_scores,
-                            challenge_primitive_accuracy_scores=challenge_primitive_accuracy_scores,
-                            aggregate_cost_in_cents=total_cost_in_cents,
-                        )
-                        first_solutions, first_accuracy = solutions_and_accuracies[0]
-                        second_solutions, second_accuracy = solutions_and_accuracies[1]
-                        solved = (first_accuracy == 1.0 and second_accuracy == 1.0)
-                        # Store results
-                        intermediate_solutions_d[challenge_id] = ChallengeSolutionWithAccuracy(
-                            attempt_1=first_solutions,
-                            attempt_2=second_solutions,
-                            accuracy_1=first_accuracy,
-                            accuracy_2=second_accuracy,
-                        )
-                        solutions_d[challenge_id] = []
-                        for i in range(len(challenges[challenge_id].test)):
-                            solutions_d[challenge_id].append(
-                                ChallengeSolution(
-                                    attempt_1=first_solutions[i] if i < len(first_solutions) else [[0]],
-                                    attempt_2=second_solutions[i] if i < len(second_solutions) else [[0]],
-                                )
-                            )
-                        return (challenge_id, solved, None)
+                        # Kick off LLM stage in background and return immediately to free the semaphore
+                        task = asyncio.create_task(_llm_stage(challenge_id))
+                        llm_tasks.add(task)
+                        task.add_done_callback(lambda t: llm_tasks.discard(t))
+                        return (challenge_id, True, None)
                     else:
                         # Execute in separate process
                         loop = asyncio.get_running_loop()
@@ -756,6 +765,7 @@ async def main() -> None:
                     
                 except Exception as e:
                     return (challenge_id, None, e)
+        
 
         # Helper to compute whether train was perfect but test answers were wrong
         def _is_train_perfect_but_test_wrong(cid: str) -> bool:
@@ -877,6 +887,10 @@ async def main() -> None:
                 for task in to_cancel:
                     task.cancel()
                 await asyncio.gather(*to_cancel, return_exceptions=True)
+        
+        # Wait for all background LLM tasks to finish before ending the round
+        if llm_tasks:
+            await asyncio.gather(*list(llm_tasks), return_exceptions=True)
             time_exhausted = True
         elif grace_triggered and not ids_exhausted:
             to_cancel = list(active_tasks.keys())
