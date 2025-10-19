@@ -17,6 +17,10 @@ from src.models import GRID
 # Global worker state (populated by initializer)
 _PRIMITIVES_CACHE: Dict[str, str] = {}  # id -> python_code_str
 _WORKER_ID: Optional[int] = None
+# Per-batch cached grids in each worker
+_BATCH_INPUTS: Optional[List[GRID]] = None
+_BATCH_OUTPUTS: Optional[List[GRID]] = None
+_BATCH_HASH: Optional[str] = None
 
 @dataclass
 class PrimitiveResult:
@@ -59,11 +63,23 @@ def _worker_initializer(library_data: bytes):
         
         # Only log first few workers to reduce noise
         if _WORKER_ID % 1000 == _WORKER_ID or _WORKER_ID < 1005:
-            print(f"✅ Worker {_WORKER_ID}: loaded {len(_PRIMITIVES_CACHE)} primitives")
+        print(f"✅ Worker {_WORKER_ID}: loaded {len(_PRIMITIVES_CACHE)} primitives")
+        # Reset batch context
+        global _BATCH_INPUTS, _BATCH_OUTPUTS, _BATCH_HASH
+        _BATCH_INPUTS, _BATCH_OUTPUTS, _BATCH_HASH = None, None, None
     except Exception as e:
         print(f"❌ Worker {_WORKER_ID} init failed: {e}")
         import traceback
         print(f"Worker {_WORKER_ID} traceback: {traceback.format_exc()}")
+
+def _worker_set_batch_context(train_inputs: List[GRID], train_outputs: List[GRID], ctx_hash: str) -> int:
+    """Set per-batch grids in the worker and return worker id"""
+    global _BATCH_INPUTS, _BATCH_OUTPUTS, _BATCH_HASH, _WORKER_ID
+    _BATCH_INPUTS = train_inputs
+    _BATCH_OUTPUTS = train_outputs
+    _BATCH_HASH = ctx_hash
+    return _WORKER_ID or -1
+
 
 def _evaluate_primitive_in_worker(job: EvalJob) -> PrimitiveResult:
     """Evaluate single primitive in worker process"""
@@ -82,8 +98,13 @@ def _evaluate_primitive_in_worker(job: EvalJob) -> PrimitiveResult:
                 error_msg="Primitive not found in cache"
             )
         
+        # Resolve grids from job or batch cache
+        grids_in = job.train_inputs if job.train_inputs is not None else _BATCH_INPUTS
+        grids_out = job.train_outputs if job.train_outputs is not None else _BATCH_OUTPUTS
+        if grids_in is None or grids_out is None:
+            raise RuntimeError("Worker batch context not set and no grids provided in job")
         # Execute transform inline (avoid subprocess)
-        results = _run_transform_inline(code, job.train_inputs, job.timeout_sec)
+        results = _run_transform_inline(code, grids_in, job.timeout_sec)
         
         if not results:
             return PrimitiveResult(
@@ -98,7 +119,7 @@ def _evaluate_primitive_in_worker(job: EvalJob) -> PrimitiveResult:
         num_correct = 0.0
         accuracy_scores = []
         
-        for i, (expected, actual) in enumerate(zip(job.train_outputs, results)):
+        for i, (expected, actual) in enumerate(zip(grids_out, results)):
             if expected == actual:
                 num_correct += 1.0
             acc = _percent_correct_cells(expected, actual)
@@ -140,8 +161,12 @@ def _evaluate_primitive_in_worker(job: EvalJob) -> PrimitiveResult:
         )
 
 
-def _evaluate_primitives_chunk_in_worker(primitive_ids, train_inputs, train_outputs, timeout_sec):
+def _evaluate_primitives_chunk_in_worker(primitive_ids, train_inputs, train_outputs, timeout_sec, ctx_hash: Optional[str] = None):
     """Evaluate a chunk of primitive IDs inside a single worker call"""
+    # If no grids provided, ensure worker context exists
+    global _BATCH_HASH
+    if (train_inputs is None or train_outputs is None) and (ctx_hash is not None) and (_BATCH_HASH != ctx_hash):
+        raise RuntimeError("Worker batch context hash mismatch/missing")
     results: list[PrimitiveResult] = []
     for pid in primitive_ids:
         job = EvalJob(primitive_id=pid, train_inputs=train_inputs, train_outputs=train_outputs, timeout_sec=timeout_sec)
@@ -296,6 +321,7 @@ class FastTransformPool:
         self._library_data = pickle.dumps(library)
         print(f"Serialized library: {len(self._library_data) / 1024 / 1024:.1f}MB")
         self._executor = None
+        self._last_ctx_hash: Optional[str] = None
         
     def start(self):
         """Start the worker pool"""
@@ -321,6 +347,40 @@ class FastTransformPool:
             self._executor.shutdown(wait=True)
             self._executor = None
             
+    def _compute_ctx_hash(self, train_inputs: List[GRID], train_outputs: List[GRID]) -> str:
+        import hashlib, json
+        def mini(g):
+            # shapes + first row checksum
+            if not g:
+                return [0,0,0]
+            r, c = len(g), len(g[0]) if g[0] else 0
+            s = sum(g[0]) if g and g[0] else 0
+            return [r,c,int(s)%997]
+        payload = {
+            'in': [mini(x) for x in train_inputs],
+            'out': [mini(x) for x in train_outputs],
+        }
+        return hashlib.md5(json.dumps(payload, separators=(',',':')).encode()).hexdigest()[:12]
+
+    def _ensure_batch_context(self, train_inputs: List[GRID], train_outputs: List[GRID], ctx_hash: str):
+        # Broadcast grids to all workers (best-effort, ensure each worker sets context)
+        seen: set[int] = set()
+        attempts = 0
+        futures = []
+        while len(seen) < self.num_workers and attempts < self.num_workers * 3:
+            fut = self._executor.submit(_worker_set_batch_context, train_inputs, train_outputs, ctx_hash)
+            futures.append(fut)
+            attempts += 1
+        # Collect and record worker ids
+        for fut in futures:
+            try:
+                wid = fut.result(timeout=30)
+                if isinstance(wid, int) and wid != -1:
+                    seen.add(wid)
+            except Exception:
+                pass
+        print(f"Broadcasted batch context to {len(seen)}/{self.num_workers} workers (ctx={ctx_hash})")
+
     def evaluate_primitives_batch(self, 
                                  primitive_ids: List[str],
                                  train_inputs: List[GRID], 
@@ -341,6 +401,12 @@ class FastTransformPool:
         if not self._executor:
             self.start()
             
+        # Ensure batch context is set in workers (avoid resending grids each chunk)
+        ctx_hash = self._compute_ctx_hash(train_inputs, train_outputs)
+        if self._last_ctx_hash != ctx_hash:
+            self._ensure_batch_context(train_inputs, train_outputs, ctx_hash)
+            self._last_ctx_hash = ctx_hash
+
         # Chunk primitives to reduce IPC/pickling overhead
         try:
             chunk_size = max(16, int(os.environ.get("ARC_FAST_SWEEP_CHUNK", "128")))
@@ -351,7 +417,7 @@ class FastTransformPool:
         # Submit chunk jobs with timing
         submit_start = time.perf_counter()
         future_to_chunk: Dict[Any, List[str]] = {
-            self._executor.submit(_evaluate_primitives_chunk_in_worker, chunk, train_inputs, train_outputs, timeout_per_primitive): chunk
+            self._executor.submit(_evaluate_primitives_chunk_in_worker, chunk, None, None, timeout_per_primitive, ctx_hash): chunk
             for chunk in chunks
         }
         submit_time = time.perf_counter() - submit_start
@@ -438,9 +504,11 @@ class FastTransformPool:
                         except Exception:
                             pass
                         self.start()
+                        # Re-broadcast context after restart
+                        self._ensure_batch_context(train_inputs, train_outputs, ctx_hash)
                         # Resubmit
                         future_to_chunk = {
-                            self._executor.submit(_evaluate_primitives_chunk_in_worker, chunk, train_inputs, train_outputs, timeout_per_primitive): chunk
+                            self._executor.submit(_evaluate_primitives_chunk_in_worker, chunk, None, None, timeout_per_primitive, ctx_hash): chunk
                             for chunk in remaining_chunks
                         }
                         last_progress = time.perf_counter()
