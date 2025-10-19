@@ -277,8 +277,9 @@ class FastTransformPool:
                 num_workers = 2  # Very conservative default for memory
             
         self.num_workers = num_workers
-        # Increase tasks per child to reduce worker restarts
-        self.max_tasks_per_child = max(max_tasks_per_child, 500)
+        # Set high task limit so workers persist through entire challenges
+        # Each challenge ~2000+ primitives, allow multiple challenges per worker
+        self.max_tasks_per_child = max(max_tasks_per_child, 10000)
         
         # Serialize library for workers (this might be large!)
         import pickle
@@ -302,7 +303,7 @@ class FastTransformPool:
             max_tasks_per_child=self.max_tasks_per_child
         )
         
-        print(f"🚀 Started transform pool: {self.num_workers} workers, forkserver context, {self.max_tasks_per_child} tasks per child")
+        print(f"🚀 Started transform pool: {self.num_workers} workers, forkserver context, {self.max_tasks_per_child} tasks per child (persistent across challenges)")
         
     def shutdown(self):
         """Shutdown the worker pool"""
