@@ -367,9 +367,11 @@ class FastTransformPool:
                     result = future.result()  # Let primitives run (should be fast ~100-300ms)
                     completed_count += 1
                     
-                    # Progress logging every 500 primitives or 25% of total
-                    if completed_count % min(500, max(1, total_jobs // 4)) == 0 or completed_count == total_jobs:
-                        print(f"Progress: {completed_count}/{total_jobs} primitives evaluated ({completed_count/total_jobs*100:.1f}%)")
+                    # Progress logging at 50% and 100% only
+                    progress_pct = completed_count / total_jobs * 100
+                    halfway = total_jobs // 2
+                    if completed_count == halfway or completed_count == total_jobs:
+                        print(f"Progress: {completed_count}/{total_jobs} primitives evaluated ({progress_pct:.1f}%)")
                     
                     # Check for worker-killing errors and record for blocklist
                     if not result.success and result.error_msg and result.error_msg.startswith("WORKER_KILLER:"):
