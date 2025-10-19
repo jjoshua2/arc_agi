@@ -325,8 +325,8 @@ class FastTransformPool:
         if self._executor is not None:
             return  # Already started
             
-        # Use forkserver on Linux for notebook compatibility
-        ctx = mp.get_context('forkserver' if hasattr(mp, 'get_context') else 'spawn')
+        # Use spawn context for robustness across notebooks/process restarts
+        ctx = mp.get_context('spawn')
         
         self._executor = ProcessPoolExecutor(
             max_workers=self.num_workers,
@@ -398,14 +398,22 @@ class FastTransformPool:
         if not self._executor:
             self.start()
             
-        # Optionally broadcast batch context (disabled by default to support concurrent challenges)
-        broadcast = os.environ.get("ARC_FAST_SWEEP_BROADCAST", "0") == "1"
-        ctx_hash = None
-        if broadcast:
-            ctx_hash = self._compute_ctx_hash(train_inputs, train_outputs)
-            if self._last_ctx_hash != ctx_hash:
-                self._ensure_batch_context(train_inputs, train_outputs, ctx_hash)
-                self._last_ctx_hash = ctx_hash
+        # Compute context hash for per-challenge state
+        ctx_hash = self._compute_ctx_hash(train_inputs, train_outputs)
+        # Optionally restart pool per challenge to avoid lingering state
+        restart_per_challenge = os.environ.get("ARC_FAST_SWEEP_RESTART_PER_CHALLENGE", "1") == "1"
+        if restart_per_challenge and (self._last_ctx_hash is not None) and (self._last_ctx_hash != ctx_hash):
+            print("🔄 New challenge detected; restarting transform pool to reset worker state")
+            try:
+                self.shutdown()
+            except Exception:
+                pass
+            self.start()
+        self._last_ctx_hash = ctx_hash
+        
+        # Optionally broadcast batch context (disabled by default)
+        if os.environ.get("ARC_FAST_SWEEP_BROADCAST", "0") == "1":
+            self._ensure_batch_context(train_inputs, train_outputs, ctx_hash)
 
         # Chunk primitives to reduce IPC/pickling overhead
         try:
