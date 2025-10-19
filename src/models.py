@@ -691,7 +691,12 @@ class Attempt(BaseModel):
             except Exception:
                 pass
             return []
-        print(f"[{challenge.id}] llm responses: {next_messages}")
+        # Only show LLM responses in verbose mode
+        verbose_mode = os.environ.get("SUBMISSION_VERBOSE", "0") == "1"
+        if verbose_mode:
+            print(f"[{challenge.id}] llm responses: {next_messages}")
+        else:
+            print(f"[{challenge.id}] received {len(next_messages)} LLM responses")
         logfire.debug(f"[{challenge.id}] llm responses: {next_messages}")
         start_grid = time.time()
         llm_responses = [m[0] for m in next_messages]

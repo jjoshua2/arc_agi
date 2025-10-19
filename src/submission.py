@@ -206,11 +206,16 @@ async def main() -> None:
     parser.add_argument("-v1", "--version1", action="store_true", help="Test on ARC-AGI-1 public eval set")
     parser.add_argument("-p", "--path", type=str, help="Input dataset path (JSON file or directory)")
     parser.add_argument("--precheck-only", action="store_true", help="Only run library precheck; no LLM calls (requires -e)")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output (LLM responses, detailed solutions)")
     args = parser.parse_args()
 
     if args.precheck_only and not args.eval:
         print("Error: --precheck-only requires -e/--eval (resume from a saved library).")
         return
+    
+    # Set verbose mode for subprocess communication
+    if args.verbose:
+        os.environ["SUBMISSION_VERBOSE"] = "1"
 
     if args.lpn:
         artifact_path = os.getenv("LPN_ARTIFACT_PATH")
@@ -457,28 +462,37 @@ async def main() -> None:
                     aggregate_cost_in_cents=total_cost_in_cents,
                 )
 
-        logfire.debug(f"[{challenge.id}] solutions_and_accuracies: {solutions_and_accuracies}")
-        print(f"[{challenge.id}] solutions_and_accuracies: {solutions_and_accuracies}")
+        if args.verbose:
+            logfire.debug(f"[{challenge.id}] solutions_and_accuracies: {solutions_and_accuracies}")
+            print(f"[{challenge.id}] solutions_and_accuracies: {solutions_and_accuracies}")
 
         first_solutions_and_accuracy, second_solutions_and_accuracy = solutions_and_accuracies[0], solutions_and_accuracies[1]
 
-        logfire.debug(f"[{challenge.id}] tuple 1: {first_solutions_and_accuracy}, tuple 2: {second_solutions_and_accuracy}")
-        print(f"[{challenge.id}] tuple 1: {first_solutions_and_accuracy}, tuple 2: {second_solutions_and_accuracy}")
+        if args.verbose:
+            logfire.debug(f"[{challenge.id}] tuple 1: {first_solutions_and_accuracy}, tuple 2: {second_solutions_and_accuracy}")
+            print(f"[{challenge.id}] tuple 1: {first_solutions_and_accuracy}, tuple 2: {second_solutions_and_accuracy}")
 
         first_solutions, first_accuracy = first_solutions_and_accuracy
         second_solutions, second_accuracy = second_solutions_and_accuracy
 
         logfire.debug(f"[{challenge.id}] first_solutions: {first_solutions}, first_accuracy: {first_accuracy}")
         logfire.debug(f"[{challenge.id}] second_solutions: {second_solutions}, second_accuracy: {second_accuracy}")
-        print(f"[{challenge.id}] first_solutions: {first_solutions}, first_accuracy: {first_accuracy}")
-        print(f"[{challenge.id}] second_solutions: {second_solutions}, second_accuracy: {second_accuracy}")
+        if args.verbose:
+            print(f"[{challenge.id}] first_solutions: {first_solutions}, first_accuracy: {first_accuracy}")
+            print(f"[{challenge.id}] second_solutions: {second_solutions}, second_accuracy: {second_accuracy}")
+        else:
+            # Concise output: just accuracy info
+            solved_status = "✓ SOLVED" if (first_accuracy == 1.0 and second_accuracy == 1.0) else "✗ unsolved"
+            print(f"[{challenge.id}] {solved_status} (acc: {first_accuracy:.2f}, {second_accuracy:.2f})")
 
         first_solution_correct_length, second_solution_correct_length = True, True
         if len(challenge.test) != len(first_solutions):
-            print(f"[{challenge.id}] first_solutions have len {len(first_solutions)} but challenge.test has len {len(challenge.test)}")
+            if args.verbose:
+                print(f"[{challenge.id}] first_solutions have len {len(first_solutions)} but challenge.test has len {len(challenge.test)}")
             first_solution_correct_length = False
         if len(challenge.test) != len(second_solutions):
-            print(f"[{challenge.id}] second_solutions have len {len(second_solutions)} but challenge.test has len {len(challenge.test)}")
+            if args.verbose:
+                print(f"[{challenge.id}] second_solutions have len {len(second_solutions)} but challenge.test has len {len(challenge.test)}")
             second_solution_correct_length = False
 
         if challenge.id not in intermediate_solutions_d:
@@ -773,18 +787,16 @@ async def main() -> None:
                 if err is not None:
                     print(f"Error solving challenge {challenge_id}: {err}")
                     logfire.debug(f"Error solving challenge {challenge_id}: {err}")
-                elif solved:
-                    was_previously_solved = challenge_id in solved_challenges
-                    if not was_previously_solved:
-                        solved_challenges.add(challenge_id)
-                    if (
-                        challenge_id not in solved_before_round_snapshot
-                        and challenge_id not in round_new_solved_ids
-                    ):
-                        round_new_solved_ids.add(challenge_id)
-                else:
-                    print(f"Challenge {challenge_id} not solved")
-                    logfire.debug(f"Challenge {challenge_id} not solved")
+                            elif solved:
+                                was_previously_solved = challenge_id in solved_challenges
+                                if not was_previously_solved:
+                                    solved_challenges.add(challenge_id)
+                                if (
+                                    challenge_id not in solved_before_round_snapshot
+                                    and challenge_id not in round_new_solved_ids
+                                ):
+                                    round_new_solved_ids.add(challenge_id)
+                            # Note: individual challenge completion status is shown in concise format above
 
                 try:
                     if _is_train_perfect_but_test_wrong(challenge_id):
