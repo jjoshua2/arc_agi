@@ -547,9 +547,6 @@ class FastTransformPool:
                             future_to_chunk[fut] = ch
                         last_progress = time.perf_counter()
                         continue
-                        }
-                        last_progress = time.perf_counter()
-                        continue
                 
                 if not future_to_chunk:
                     break
