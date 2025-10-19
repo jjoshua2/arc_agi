@@ -10,6 +10,7 @@ import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Dict, List, Tuple, Any, Optional
 from dataclasses import dataclass
+from collections import deque
 import numpy as np
 
 from src.models import GRID
@@ -336,7 +337,7 @@ class FastTransformPool:
             max_tasks_per_child=self.max_tasks_per_child
         )
         
-        print(f"🚀 Started transform pool: {self.num_workers} workers, forkserver context, {self.max_tasks_per_child} tasks per child (persistent across challenges)")
+        print(f"🚀 Started transform pool: {self.num_workers} workers, spawn context, {self.max_tasks_per_child} tasks per child (persistent across challenges)")
         
     def shutdown(self):
         """Shutdown the worker pool"""
@@ -422,15 +423,20 @@ class FastTransformPool:
             chunk_size = 128
         chunks: List[List[str]] = [primitive_ids[i:i+chunk_size] for i in range(0, len(primitive_ids), chunk_size)]
         
-        # Submit chunk jobs with timing
-        submit_start = time.perf_counter()
-        future_to_chunk: Dict[Any, List[str]] = {
-            # Send grids with each chunk; ctx_hash is unused when broadcast disabled
-            self._executor.submit(_evaluate_primitives_chunk_in_worker, chunk, train_inputs, train_outputs, timeout_per_primitive, ctx_hash): chunk
-            for chunk in chunks
-        }
-        submit_time = time.perf_counter() - submit_start
-        print(f"Submitted {len(chunks)} chunk-jobs to pool in {submit_time:.3f}s (chunk_size={chunk_size})")
+        # Stream chunk jobs to avoid synchronous submit overhead
+        chunk_queue = deque(chunks)
+        future_to_chunk: Dict[Any, List[str]] = {}
+        inflight_limit = min(self.num_workers, len(chunks))
+        for _ in range(inflight_limit):
+            if not chunk_queue:
+                break
+            ch = chunk_queue.popleft()
+            fut = self._executor.submit(
+                _evaluate_primitives_chunk_in_worker,
+                ch, train_inputs, train_outputs, timeout_per_primitive, ctx_hash
+            )
+            future_to_chunk[fut] = ch
+        print(f"Streaming {len(chunks)} chunk-jobs (chunk_size={chunk_size}, inflight={inflight_limit})")
         
         # Collect results with progress tracking and timeout + stall watchdog
         results: List[PrimitiveResult] = []
@@ -480,6 +486,14 @@ class FastTransformPool:
                             
                             # Remove processed future
                             future_to_chunk.pop(future, None)
+                            # Submit next chunk if available
+                            if chunk_queue:
+                                ch_next = chunk_queue.popleft()
+                                fut_next = self._executor.submit(
+                                    _evaluate_primitives_chunk_in_worker,
+                                    ch_next, train_inputs, train_outputs, timeout_per_primitive, ctx_hash
+                                )
+                                future_to_chunk[fut_next] = ch_next
                         except Exception as e:
                             chunk = future_to_chunk.get(future, [])
                             # Check if this is a worker crash that killed the pool
@@ -511,19 +525,28 @@ class FastTransformPool:
                     if (time.perf_counter() - last_progress) > stall_secs and future_to_chunk:
                         print(f"⏱️  Stall detected (>{stall_secs}s without progress). Restarting pool and resubmitting remaining chunks...")
                         remaining_chunks = [chunk for fut, chunk in list(future_to_chunk.items()) if not fut.done()]
+                        # Include queued chunks
+                        remaining_chunks.extend(list(chunk_queue))
                         # Restart pool
                         try:
                             self.shutdown()
                         except Exception:
                             pass
                         self.start()
-                        # Re-broadcast context after restart if enabled
-                        if ctx_hash is not None:
-                            self._ensure_batch_context(train_inputs, train_outputs, ctx_hash)
-                        # Resubmit chunks (send grids each time)
-                        future_to_chunk = {
-                            self._executor.submit(_evaluate_primitives_chunk_in_worker, chunk, train_inputs, train_outputs, timeout_per_primitive, ctx_hash): chunk
-                            for chunk in remaining_chunks
+                        # Re-prime inflight
+                        future_to_chunk = {}
+                        chunk_queue = deque(remaining_chunks)
+                        for _ in range(inflight_limit):
+                            if not chunk_queue:
+                                break
+                            ch = chunk_queue.popleft()
+                            fut = self._executor.submit(
+                                _evaluate_primitives_chunk_in_worker,
+                                ch, train_inputs, train_outputs, timeout_per_primitive, ctx_hash
+                            )
+                            future_to_chunk[fut] = ch
+                        last_progress = time.perf_counter()
+                        continue
                         }
                         last_progress = time.perf_counter()
                         continue
