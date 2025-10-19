@@ -694,7 +694,7 @@ async def main() -> None:
                     challenge_dict = {
                         'id': challenge_id,
                         'train': [{'input': t.input, 'output': t.output} for t in challenges[challenge_id].train],
-                        'test': [{'input': t.input, 'output': t.get('output')} for t in challenges[challenge_id].test]
+                        'test': [{'input': t.input, 'output': getattr(t, 'output', None)} for t in challenges[challenge_id].test]
                     }
                     
                     library_dict = {
