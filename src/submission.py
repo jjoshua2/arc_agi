@@ -681,8 +681,10 @@ async def main() -> None:
                         # Run in-process to reuse the single global transform pool
                         from src.trees.experiments import grokfast_dreamcoder_tree
                         from src.logic import solve_challenge_with_accuracy
+                        # Use existing challenge object from in-memory dict
+                        challenge_obj = challenges[challenge_id]
                         solutions_and_accuracies = await solve_challenge_with_accuracy(
-                            challenge=challenge,
+                            challenge=challenge_obj,
                             tree=grokfast_dreamcoder_tree,
                             library=library,
                             use_primitives_weighed_by_score=True,
