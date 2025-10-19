@@ -440,6 +440,7 @@ import threading
 _global_pool: Optional[FastTransformPool] = None
 _pool_lock = threading.Lock()  # Thread-safe pool creation
 _global_library_hash: Optional[str] = None  # Track library content hash
+_pool_creating = False  # Flag to prevent concurrent creation
 
 def _get_library_hash(library) -> str:
     """Get a hash of the library content for comparison"""
@@ -454,36 +455,59 @@ def _get_library_hash(library) -> str:
 
 def get_global_transform_pool(library=None) -> FastTransformPool:
     """Get or create global transform pool (thread-safe, reuses same library)"""
-    global _global_pool, _global_library_hash
+    global _global_pool, _global_library_hash, _pool_creating
     
     import threading
+    import time
     current_thread = threading.current_thread().name
     current_library_hash = _get_library_hash(library) if library else None
     
     with _pool_lock:
-        if _global_pool is None:
-            if library is not None:
-                print(f"🏗️  Creating NEW global transform pool (first time) [thread: {current_thread}, hash: {current_library_hash}]")
-                _global_pool = FastTransformPool(library)
-                _global_pool.start()
-                _global_library_hash = current_library_hash
+        # If another thread is creating, wait for it
+        if _pool_creating:
+            print(f"⏳ Waiting for pool creation by another thread [thread: {current_thread}]")
+            
+        # Wait for creation to complete (up to 60 seconds)
+        start_wait = time.time()
+        while _pool_creating and (time.time() - start_wait) < 60:
+            time.sleep(0.1)
+            
+        if _pool_creating:
+            print(f"⚠️  Timeout waiting for pool creation [thread: {current_thread}]")
+            return None
+            
+        # Check if pool exists after waiting
+        if _global_pool is not None and _global_pool._executor:
+            if current_library_hash == _global_library_hash:
+                # Pool exists and library matches - reuse
+                return _global_pool
             else:
-                print("⚠️  Cannot create pool: no library provided")
-                return None
-        elif not _global_pool._executor:
-            # Pool exists but is shutdown, restart it
-            print(f"🔄 Restarting existing transform pool... [thread: {current_thread}]")
-            _global_pool.start()
-        elif current_library_hash and current_library_hash != _global_library_hash:
-            # Library has changed, recreate pool
-            print(f"🔄 Library changed (hash {_global_library_hash} -> {current_library_hash}), recreating pool... [thread: {current_thread}]")
-            _global_pool.shutdown()
-            _global_pool = FastTransformPool(library)
-            _global_pool.start()
-            _global_library_hash = current_library_hash
-        else:
-            # Pool exists and library is the same - reuse silently
-            # print(f"✅ Reusing pool [thread: {current_thread}, hash: {current_library_hash}]")
+                # Library changed, recreate
+                print(f"🔄 Library changed (hash {_global_library_hash} -> {current_library_hash}), recreating pool... [thread: {current_thread}]")
+                _global_pool.shutdown()
+                _global_pool = None
+                
+        # Need to create new pool
+        if _global_pool is None and library is not None:
+            print(f"🏗️  Creating NEW global transform pool [thread: {current_thread}, hash: {current_library_hash}]")
+            _pool_creating = True
+            
+    # Create pool outside lock to avoid blocking
+    if _pool_creating:
+        try:
+            new_pool = FastTransformPool(library)
+            new_pool.start()
+            with _pool_lock:
+                _global_pool = new_pool
+                _global_library_hash = current_library_hash
+                _pool_creating = False
+        except Exception as e:
+            with _pool_lock:
+                _pool_creating = False
+            print(f"⚠️  Failed to create pool: {e}")
+            raise e
+    
+    return _global_pool
             pass
     
     return _global_pool
