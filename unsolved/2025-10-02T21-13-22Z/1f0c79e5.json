@@ -1,0 +1,10 @@
+{
+  "challenge_id": "1f0c79e5",
+  "fallback_library": true,
+  "library_selection": {
+    "primitive_id": "2293",
+    "num_train_correct": 0.0,
+    "avg_train_accuracy": 0.9537037037037036
+  },
+  "note": "no_llm_attempts_recorded_this_round"
+}

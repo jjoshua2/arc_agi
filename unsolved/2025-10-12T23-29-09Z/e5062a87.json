@@ -1,0 +1,9 @@
+{
+  "challenge_id": "e5062a87",
+  "best1": {
+    "train_mismatches": 27,
+    "test_mismatches": 2,
+    "combined_mismatches": 29,
+    "used_test": true
+  }
+}

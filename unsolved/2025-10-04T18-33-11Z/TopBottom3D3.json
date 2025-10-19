@@ -1,0 +1,9 @@
+{
+  "challenge_id": "TopBottom3D3",
+  "best1": {
+    "train_mismatches": 38,
+    "test_mismatches": 46,
+    "combined_mismatches": 84,
+    "used_test": true
+  }
+}

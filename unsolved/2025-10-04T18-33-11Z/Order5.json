@@ -1,0 +1,15 @@
+{
+  "challenge_id": "Order5",
+  "best1": {
+    "train_mismatches": 10,
+    "test_mismatches": 28,
+    "combined_mismatches": 38,
+    "used_test": true
+  },
+  "best2": {
+    "train_mismatches": 33,
+    "test_mismatches": 36,
+    "combined_mismatches": 69,
+    "used_test": true
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "challenge_id": "CleanUp7",
+  "fallback_library": true,
+  "library_selection": {
+    "primitive_id": "7",
+    "num_train_correct": 0.0,
+    "avg_train_accuracy": 0.9629629629629629
+  },
+  "note": "no_llm_attempts_recorded_this_round"
+}

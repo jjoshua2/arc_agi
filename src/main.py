@@ -405,6 +405,14 @@ from src.trees.experiments import deepseek_v3_1
     except Exception:
         pass
 
+    # Cleanup fast sweep resources
+    try:
+        from src.transform_pool import shutdown_global_pool
+        shutdown_global_pool()
+        print("Cleaned up transform pool")
+    except Exception as e:
+        print(f"Warning: failed to cleanup transform pool: {e}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

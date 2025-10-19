@@ -1,0 +1,9 @@
+{
+  "challenge_id": "Order3",
+  "best1": {
+    "train_mismatches": 20,
+    "test_mismatches": 48,
+    "combined_mismatches": 68,
+    "used_test": true
+  }
+}

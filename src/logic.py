@@ -482,6 +482,7 @@ try:
 except Exception:
     _SCORE_USE_PROCESS = True
 
+
 try:
     _SCORE_WORKERS = max(1, int(os.environ.get("SUBMISSION_SCORE_WORKERS", "4")))
 except Exception:
@@ -587,6 +588,16 @@ async def _two_pass_select_primitives_async(
 
     if not library or not library.primitives:
         return []
+
+    # Check if fast sweep is enabled
+    use_fast_sweep = os.environ.get("ARC_FAST_SWEEP", "1") == "1"
+    
+    if use_fast_sweep:
+        try:
+            return await _fast_two_pass_select_primitives_async(library, challenge, k_top, challenge_primitive_scores, fp_top_k, sp_batch)
+        except Exception as e:
+            print(f"[{challenge.id}] Fast sweep failed, falling back to original: {e}")
+            # Fall through to original implementation
 
     # First pass on example_index=0 across all primitives (async batched)
     import time
@@ -746,6 +757,136 @@ async def _two_pass_select_primitives_async(
     logfire.debug(f"[{challenge.id}] Phase timing - First: {first_pass_time:.1f}s, Second: {second_pass_time:.1f}s")
     
     return [prims[i] for i in final_indices]
+
+
+async def _fast_two_pass_select_primitives_async(
+    library: Library,
+    challenge: Challenge, 
+    k_top: int,
+    challenge_primitive_scores: dict[str, dict[str, tuple[float, float]]] | None,
+    fp_top_k: int,
+    sp_batch: int
+) -> list[Primitive]:
+    """Fast implementation using persistent worker pool and shape filtering"""
+    from src.transform_pool import get_global_transform_pool
+    from src.shape_filter import filter_primitives_by_shape
+    import time
+    
+    start_time = time.perf_counter()
+    
+    # Step 1: Shape-based filtering (very fast)
+    shape_filter_start = time.perf_counter()
+    filtered_primitives = filter_primitives_by_shape(list(library.primitives), challenge)
+    shape_filter_time = time.perf_counter() - shape_filter_start
+    
+    if not filtered_primitives:
+        print(f"[{challenge.id}] Fast sweep: no primitives after shape filter")
+        return []
+    
+    # Step 2: First pass using worker pool (single example)
+    first_pass_start = time.perf_counter()
+    
+    # Get or create global pool
+    pool = get_global_transform_pool(library)
+    
+    # Use first training example for first pass
+    if not challenge.train:
+        return []
+    first_example = challenge.train[0]
+    train_inputs = [first_example.input]
+    train_outputs = [first_example.output]
+    
+    # Get primitive IDs
+    primitive_ids = [getattr(p, 'id', f'prim_{i}') for i, p in enumerate(filtered_primitives)]
+    
+    # Evaluate in batches to control memory
+    batch_size = 100
+    first_pass_results = []
+    
+    for i in range(0, len(primitive_ids), batch_size):
+        batch_ids = primitive_ids[i:i+batch_size]
+        batch_results = pool.evaluate_primitives_batch(
+            primitive_ids=batch_ids,
+            train_inputs=train_inputs,
+            train_outputs=train_outputs,
+            timeout_per_primitive=5.0
+        )
+        first_pass_results.extend(batch_results)
+    
+    first_pass_time = time.perf_counter() - first_pass_start
+    
+    # Convert results to scores and find top candidates
+    first_pass_scores = []
+    for i, result in enumerate(first_pass_results):
+        if result.success:
+            # Score is num_correct + accuracy (matches original logic)
+            score = result.num_correct + result.accuracy_score
+            first_pass_scores.append((i, score, result.accuracy_score))
+        else:
+            first_pass_scores.append((i, 0.0, 0.0))
+    
+    # Check for perfect-on-first solutions
+    perfect_indices = [i for i, score, acc in first_pass_scores if score >= 2.0]  # perfect = 1.0 + 1.0
+    
+    if perfect_indices:
+        print(f"[{challenge.id}] Fast sweep: found {len(perfect_indices)} perfect-on-first primitives")
+        # Test perfect candidates on all examples using second pass logic
+        perfect_candidates = [filtered_primitives[i] for i in perfect_indices]
+        perfect_results = await _evaluate_candidates_full_async(perfect_candidates, challenge, challenge_primitive_scores)
+        
+        # Check if any solve all examples
+        total_examples = len(challenge.train)
+        perfect_all = [(i, nc, sc) for i, (nc, sc) in enumerate(perfect_results) if nc >= total_examples]
+        
+        if perfect_all:
+            print(f"[{challenge.id}] Fast sweep: {len(perfect_all)} primitives solve all examples!")
+            # Return best perfect ones
+            scores = [nc + sc for _, nc, sc in perfect_all]
+            scores_arr = np.array(scores)
+            exp_scores = np.exp(scores_arr - np.max(scores_arr))
+            probabilities = exp_scores / np.clip(exp_scores.sum(), 1e-12, None)
+            selected_positions = _safe_sample_indices(len(perfect_all), min(k_top, len(perfect_all)), probabilities, ctx=f"fast_perfect:{challenge.id}")
+            return [perfect_candidates[perfect_all[pos][0]] for pos in selected_positions]
+    
+    # No perfect solution, proceed with top-K from first pass
+    first_pass_scores.sort(key=lambda x: x[1], reverse=True)  # Sort by score
+    top_indices = [i for i, _, _ in first_pass_scores[:fp_top_k]]
+    top_candidates = [filtered_primitives[i] for i in top_indices]
+    
+    if not top_candidates:
+        return []
+    
+    # Second pass: evaluate top candidates on all examples
+    second_pass_start = time.perf_counter()
+    full_results = await _evaluate_candidates_full_async(top_candidates, challenge, challenge_primitive_scores)
+    second_pass_time = time.perf_counter() - second_pass_start
+    
+    # Select final primitives using softmax
+    scores = [nc + sc for nc, sc in full_results]
+    if not scores:
+        return []
+    
+    scores_arr = np.array(scores)
+    exp_scores = np.exp(scores_arr - np.max(scores_arr))
+    probabilities = exp_scores / np.clip(exp_scores.sum(), 1e-12, None)
+    selected_positions = _safe_sample_indices(len(scores), min(k_top, len(scores)), probabilities, ctx=f"fast_sweep:{challenge.id}")
+    
+    total_time = time.perf_counter() - start_time
+    print(f"[{challenge.id}] Fast sweep: shape={shape_filter_time:.1f}s, first={first_pass_time:.1f}s, second={second_pass_time:.1f}s, total={total_time:.1f}s")
+    
+    return [top_candidates[pos] for pos in selected_positions]
+
+
+async def _evaluate_candidates_full_async(candidates: list[Primitive], challenge: Challenge, challenge_primitive_scores) -> list[tuple[float, float]]:
+    """Evaluate candidates on all training examples (for second pass)"""
+    results = []
+    for primitive in candidates:
+        try:
+            nc, sc = await evaluate_primitive_weighed_async(primitive, challenge, challenge_primitive_scores)
+            results.append((float(nc), float(sc)))
+        except Exception:
+            results.append((0.0, 0.0))
+    return results
 
 
 def get_best_primitives(

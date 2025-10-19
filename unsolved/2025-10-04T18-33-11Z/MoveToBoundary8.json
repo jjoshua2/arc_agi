@@ -1,0 +1,9 @@
+{
+  "challenge_id": "MoveToBoundary8",
+  "best1": {
+    "train_mismatches": 10,
+    "test_mismatches": 17,
+    "combined_mismatches": 27,
+    "used_test": true
+  }
+}

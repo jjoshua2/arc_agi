@@ -1,0 +1,9 @@
+{
+  "challenge_id": "InsideOutside8",
+  "best1": {
+    "train_mismatches": 141,
+    "test_mismatches": 7,
+    "combined_mismatches": 148,
+    "used_test": true
+  }
+}

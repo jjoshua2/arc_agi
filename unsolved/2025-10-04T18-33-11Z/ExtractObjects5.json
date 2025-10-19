@@ -1,0 +1,9 @@
+{
+  "challenge_id": "ExtractObjects5",
+  "best1": {
+    "train_mismatches": 93,
+    "test_mismatches": 126,
+    "combined_mismatches": 219,
+    "used_test": true
+  }
+}

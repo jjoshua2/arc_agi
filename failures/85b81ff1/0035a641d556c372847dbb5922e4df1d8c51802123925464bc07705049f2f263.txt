@@ -1,0 +1,1226 @@
+challenge_id: 85b81ff1
+model: x-ai/grok-4-fast:free
+prompt_hash: 0035a641d556c372847dbb5922e4df1d8c51802123925464bc07705049f2f263
+timestamp: 1758775944
+
+Instructions:
+- The text below is a readable dump of the prompt messages (roles + text).
+- The JSON file contains the original messages structure.
+- If available, wire.json contains the exact message payload sent to the provider.
+- Paste into your UI accordingly and save the assistant response to manual_responses/0035a641d556c372847dbb5922e4df1d8c51802123925464bc07705049f2f263.txt
+
+[SYSTEM]
+You will be given some number of paired example inputs and outputs. The outputs were produced by applying a transformation rule to the inputs. In addition to the paired example inputs and outputs, there is also an additional input without a known output (or possibly multiple additional inputs). Your task is to determine the transformation rule and implement it in code.
+
+The inputs and outputs are each "grids". A grid is a rectangular matrix of integers between 0 and 9 (inclusive). These grids will be shown to you as both images and grids of numbers (ASCII). You may also get an ASCII representation of the change for each cell comparing the input and output. For example 0 -> 1 means the value switched from 0 to 1 in that cell. `--` means the value in that cell did not change. The image and the grid of numbers for each input/output contain the same information: we just show both representations for convenience. Each number corresponds to a color in the image. The correspondence is as follows: black: 0, blue: 1, red: 2, green: 3, yellow: 4, grey: 5, pink: 6, orange: 7, purple: 8, brown: 9.
+
+The transformation rule maps from each input to a single correct output, and your implementation in code must be exactly correct. Thus, you need to resolve all potential uncertainties you might have about the transformation rule. For instance, if the examples always involve some particular color being changed to another color in the output, but which color it is changed to varies between different examples, then you need to figure out what determines the correct output color. As another example, if some shape(s) or cells in the input are relocated or recolored, you need to determine which exact shapes should be relocated/recolored in the output and where they should be moved or what their color in the output should be. Whenever there are potential ambiguities or uncertainties in your current understanding of the transformation rule, you need to resolve them before implementing the transformation in code. You should resolve ambiguities and uncertainties by carefully analyzing the examples and using step by step reasoning.
+
+The transformation rule might have multiple components and might be fairly complex. It's also reasonably common that the transformation rule has one main rule (e.g., replace cells in XYZ pattern with color ABC), but has some sort of exception (e.g., don't replace cells if they have color DEF). So, you should be on the lookout for additional parts or exceptions that you might have missed so far. Consider explicitly asking yourself (in writing): "Are there any additional parts or exceptions to the transformation rule that I might have missed?" (Rules don't necessarily have multiple components or exceptions, but it's common enough that you should consider it.)
+
+Here are some examples of transformation rules with multiple components or exceptions:
+
+- There is a grey grid with black holes that have different shapes and the rule is to fill in these holes with colored cells. Further, the color to use for each hole depends on the size of the hole (in terms of the number of connected cells). 1 cell holes are filled with pink, 2 cell holes are filled with blue, and 3 cell holes are filled with red.
+- The output is 3x3 while the input is 3x7. The output has red cells while the input has two "sub-grids" that are 3x3 and separated by a grey line in the middle. Each of the sub-grids has some colored cells (blue) and some black cells. The rule is to AND the two sub-grids together (i.e., take the intersection of where the two sub-grids are blue) and color the 3x3 cells in the output red if they are in the intersection and black otherwise.
+- The grey rectangular outlines are filled with some color in the output. Pink, orange, and purple are used to fill in the voids in different cases. The color depends on the size of the black void inside the grey outline where it is pink if the void has 1 cell (1x1 void), orange if the gap has 4 cells, and purple if the gap was 9 cells. For each void, all of the filled-in colors are the same.
+- The red shape in the input is moved. It is moved either horizontally or vertically. It is moved until moving it further would intersect with a purple shape. It is moved in the direction of the purple shape, that is, moved in whichever direction would involve it eventually intersecting with this purple shape.
+
+These are just example rules; the actual transformation rule will be quite different. But, this should hopefully give you some sense of what transformation rules might look like.
+
+Note that in each of these cases, you would need to find the rule by carefully examining the examples and using reasoning. You would then need to implement the transformation rule precisely, taking into account all possible cases and getting all of the details right (e.g., exactly where to place various things or exactly which color to use in each case). If the details aren't fully ironed out, you should do additional reasoning to do so before implementing the transformation in code.
+
+You'll need to carefully reason in order to determine the transformation rule. Start your response by carefully reasoning in <reasoning></reasoning> tags. Then, implement the transformation in code.
+
+You follow a particular reasoning style. You break down complex problems into smaller parts and reason through them step by step, arriving at sub-conclusions before stating an overall conclusion. This reduces the extent to which you need to do large leaps of reasoning.
+
+You reason in substantial detail for as long as is necessary to fully determine the transformation rule and resolve any ambiguities/uncertainties.
+
+After your reasoning, write code in triple backticks (```python and then ```).
+You should write a function called `transform` which takes a single argument, the input grid as `list[list[int]]`, and returns the transformed grid (also as `list[list[int]]`).
+Your python code should not use libraries outside of the standard python libraries besides numpy.You can create helper functions.
+You should make sure that you implement a version of the transformation which works in general (for inputs which have the same properties as the example inputs and the additional input(s)).
+Don't write tests in your python code, just output the `transform` function.
+
+[USER]
+# Example 1
+
+## Input 1
+
+
+Shape: 10 by 10
+
+
+ASCII representation:
+
+0|0|0|0|9|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|8|8|0|0|0|0
+0|0|0|0|8|8|0|0|0|0
+0|0|0|0|8|8|0|0|0|0
+6|0|0|0|8|8|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|4|0|0|0|0
+
+
+[[0, 0, 0, 0, 9, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 8, 8, 0, 0, 0, 0],[0, 0, 0, 0, 8, 8, 0, 0, 0, 0],[0, 0, 0, 0, 8, 8, 0, 0, 0, 0],[6, 0, 0, 0, 8, 8, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 4, 0, 0, 0, 0]]
+## Output 1
+
+
+Shape: 10 by 10
+
+
+ASCII representation:
+
+0|0|0|0|9|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|9|8|0|0|0|0
+0|0|0|0|8|8|0|0|0|0
+0|0|0|0|8|8|0|0|0|0
+6|0|0|0|6|4|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|4|0|0|0|0
+
+
+[[0, 0, 0, 0, 9, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 9, 8, 0, 0, 0, 0],[0, 0, 0, 0, 8, 8, 0, 0, 0, 0],[0, 0, 0, 0, 8, 8, 0, 0, 0, 0],[6, 0, 0, 0, 6, 4, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 4, 0, 0, 0, 0]]
+## Color changes between the Input and Output ASCII representation:
+
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |8 -> 9|  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |8 -> 6|8 -> 4|  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+
+# Example 2
+
+## Input 2
+
+
+Shape: 10 by 10
+
+
+ASCII representation:
+
+0|0|0|0|7|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+6|0|0|8|8|8|0|0|0|0
+0|0|0|8|8|8|0|0|0|0
+0|0|0|8|8|8|0|0|0|2
+0|0|0|8|8|8|0|0|0|0
+3|0|0|8|8|8|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|1|0|0|0|0
+
+
+[[0, 0, 0, 0, 7, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[6, 0, 0, 8, 8, 8, 0, 0, 0, 0],[0, 0, 0, 8, 8, 8, 0, 0, 0, 0],[0, 0, 0, 8, 8, 8, 0, 0, 0, 2],[0, 0, 0, 8, 8, 8, 0, 0, 0, 0],[3, 0, 0, 8, 8, 8, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 1, 0, 0, 0, 0]]
+## Output 2
+
+
+Shape: 10 by 10
+
+
+ASCII representation:
+
+0|0|0|0|7|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+6|0|0|6|7|8|0|0|0|0
+0|0|0|8|8|8|0|0|0|0
+0|0|0|8|8|2|0|0|0|2
+0|0|0|8|8|8|0|0|0|0
+3|0|0|3|8|1|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|1|0|0|0|0
+
+
+[[0, 0, 0, 0, 7, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[6, 0, 0, 6, 7, 8, 0, 0, 0, 0],[0, 0, 0, 8, 8, 8, 0, 0, 0, 0],[0, 0, 0, 8, 8, 2, 0, 0, 0, 2],[0, 0, 0, 8, 8, 8, 0, 0, 0, 0],[3, 0, 0, 3, 8, 1, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 1, 0, 0, 0, 0]]
+## Color changes between the Input and Output ASCII representation:
+
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |8 -> 6|8 -> 7|  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |8 -> 2|  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |8 -> 3|  --  |8 -> 1|  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+
+# Example 3
+
+## Input 3
+
+
+Shape: 10 by 10
+
+
+ASCII representation:
+
+0|0|0|4|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|8|8|8|0|0|0|6
+3|0|0|8|8|8|0|0|0|0
+0|0|0|8|8|8|0|0|0|0
+2|0|0|8|8|8|0|0|0|0
+0|0|0|8|8|8|0|0|0|2
+0|0|0|0|0|0|0|0|0|0
+0|0|0|7|0|0|0|0|0|0
+
+
+[[0, 0, 0, 4, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 8, 8, 8, 0, 0, 0, 6],[3, 0, 0, 8, 8, 8, 0, 0, 0, 0],[0, 0, 0, 8, 8, 8, 0, 0, 0, 0],[2, 0, 0, 8, 8, 8, 0, 0, 0, 0],[0, 0, 0, 8, 8, 8, 0, 0, 0, 2],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 7, 0, 0, 0, 0, 0, 0]]
+## Output 3
+
+
+Shape: 10 by 10
+
+
+ASCII representation:
+
+0|0|0|4|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|4|8|6|0|0|0|6
+3|0|0|3|8|8|0|0|0|0
+0|0|0|8|8|8|0|0|0|0
+2|0|0|2|8|8|0|0|0|0
+0|0|0|7|8|2|0|0|0|2
+0|0|0|0|0|0|0|0|0|0
+0|0|0|7|0|0|0|0|0|0
+
+
+[[0, 0, 0, 4, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 4, 8, 6, 0, 0, 0, 6],[3, 0, 0, 3, 8, 8, 0, 0, 0, 0],[0, 0, 0, 8, 8, 8, 0, 0, 0, 0],[2, 0, 0, 2, 8, 8, 0, 0, 0, 0],[0, 0, 0, 7, 8, 2, 0, 0, 0, 2],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 7, 0, 0, 0, 0, 0, 0]]
+## Color changes between the Input and Output ASCII representation:
+
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |8 -> 4|  --  |8 -> 6|  --  |  --  |  --  |  --  
+  --  |  --  |  --  |8 -> 3|  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |8 -> 2|  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |8 -> 7|  --  |8 -> 2|  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+
+# Additional input
+
+
+Shape: 10 by 10
+
+
+ASCII representation:
+
+0|0|0|6|0|2|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+9|0|8|8|8|8|0|0|0|0
+0|0|8|8|8|8|0|0|0|7
+3|0|8|8|8|8|0|0|0|0
+4|0|8|8|8|8|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|6|0|0|0|0|0
+
+
+[[0, 0, 0, 6, 0, 2, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[9, 0, 8, 8, 8, 8, 0, 0, 0, 0],[0, 0, 8, 8, 8, 8, 0, 0, 0, 7],[3, 0, 8, 8, 8, 8, 0, 0, 0, 0],[4, 0, 8, 8, 8, 8, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 6, 0, 0, 0, 0, 0]]
+
+[ASSISTANT]
+<reasoning>
+The outputs always have the same shape as the inputs. The outputs are similar to the inputs, but some edits have been made.
+
+I'll describe the changes from the input to the output in detail for each of the examples to infer the transformation rule. I'll also describe the input for each example.
+
+In example 1:
+
+- A new brown (color 9) cell replaces one of the purple (color 8) cells on the top left corner of a purple rectangle.
+- A new pink (color 6) cell replaces a purple cell on the bottom left corner of the rectangle.
+- A new yellow (color 4) cell replaces a purple cell on the bottom right corner of the rectangle.
+
+The grid is otherwise unchanged.
+
+The input for example 1:
+
+- It has a purple rectangle in the middle.
+- It has a brown cell directly above the purple rectangle.
+- It has a pink cell directly to the left of the purple rectangle.
+- It has a yellow cell directly below the purple rectangle.
+- The brown cell is directly above the new brown cell (in the same column).
+- The pink cell is directly to the left of the new pink cell (in the same row).
+- The yellow cell is directly below the new yellow cell (in the same column).
+
+In example 2:
+
+- A new orange (color 7) cell replaces a purple (color 8) cell on the top of the purple rectangle.
+- A new pink cell replaces a purple cell on the top left corner of the rectangle.
+- A new red (color 2) cell replaces a purple cell on the middle right side of the rectangle.
+- A new green (color 3) cell replaces a purple cell on the bottom left corner of the rectangle.
+- A new blue (color 1) cell replaces a purple cell on the bottom right corner of the rectangle.
+
+The input for example 2:
+
+- It has a purple rectangle in the middle.
+- It has an orange cell directly above the new orange cell (in the same column).
+- It has a pink cell directly to the left of the new pink cell (in the same row).
+- It has a red cell directly to the right of the new red cell (in the same row).
+- It has a green cell directly to the left of the new green cell (in the same row).
+- It has a blue cell directly below the new blue cell (in the same column).
+
+In example 3:
+
+- A new yellow cell replaces a purple cell on the top left corner of the purple rectangle.
+- A new pink cell replaces a purple cell on the top right corner of the rectangle.
+- A new red cell replaces a purple cell on the left side of the rectangle.
+- A new orange cell replaces a purple cell on the bottom left corner of the rectangle.
+- A new red cell replaces a purple cell on the bottom right corner of the rectangle. This is a different change than the prior red cell.
+- A new green cell replaces a purple cell on the left side of the rectangle.
+
+The input for example 3:
+
+- It has a purple pixel in the middle.
+- It has a yellow/pink/red/orange/red/green cell in the same column/row as the new cell with the matching color.
+
+The input for the additional example:
+
+- It has a purple rectangle in the middle.
+- It has various colored pixels around the purple rectangle.
+
+Given these observations, we can infer the transformation rule:
+
+1. Identify a central shape (namely the purple rectangle).
+2. Look for colored cells which aren't part of the central shape.
+3. For each colored cell found around the central shape, replace a single cell on the edge of the central shape.
+4. If the colored cell is above/below the central shape, replace the top/bottom (respectively) cell in the same column on the central shape with the colored cell.
+5. If the colored cell is to the left/right of the central shape, replace the left/right cell in the same row on the central shape with the colored cell.
+
+Now let's implement this in the code.
+</reasoning>
+
+```python
+import numpy as np
+
+def transform(grid_lst: list[list[int]]) -> list[list[int]]:
+    grid = np.array(grid_lst)
+    purple_color = 8
+
+    # Find the bounding box of the purple rectangle
+    purple_shape = np.argwhere(grid == purple_color)
+    min_row, min_col = np.min(purple_shape, axis=0)
+    max_row, max_col = np.max(purple_shape, axis=0)
+
+    # Iterate over the grid to find colored cells around the purple rectangle
+    rows, cols = grid.shape
+    for row in range(rows):
+        for col in range(cols):
+            color = grid[row, col]
+            if color != 0 and color != purple_color:
+                # If the colored cell is above/below the central shape
+                if col >= min_col and col <= max_col:
+                    if row < min_row:
+                        grid[min_row, col] = color
+                    elif row > max_row:
+                        grid[max_row, col] = color
+                # If the colored cell is to the left/right of the central shape
+                if row >= min_row and row <= max_row:
+                    if col < min_col:
+                        grid[row, min_col] = color
+                    elif col > max_col:
+                        grid[row, max_col] = color
+
+    return grid.tolist()```
+
+[USER]
+Great work! Now I will give you another puzzle to solve just like that one.
+
+[ASSISTANT]
+Great, please give me the next puzzle.
+
+[USER]
+# Example 1
+
+## Input 1
+
+
+Shape: 13 by 14
+
+
+ASCII representation:
+
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|6|0|6|6|0|6|0|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|0|0|6|0|0|6|0|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|6|0|6|6|0|6|6|0|6|0|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|6|0|6|0|0|6|0|0|6|0|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|6|0|6|0|0|6|6|0|6|0|0|6|6
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|0|0|6|6|0|6|0|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+
+
+[[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6],[6, 0, 0, 6, 6, 0, 6, 6, 0, 6, 0, 0, 6, 0],[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6],[6, 0, 0, 6, 0, 0, 6, 0, 0, 6, 0, 0, 6, 0],[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6],[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 0, 0, 6, 0],[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6],[6, 6, 0, 6, 0, 0, 6, 0, 0, 6, 0, 0, 6, 0],[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6],[6, 6, 0, 6, 0, 0, 6, 6, 0, 6, 0, 0, 6, 6],[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6],[6, 0, 0, 6, 0, 0, 6, 6, 0, 6, 0, 0, 6, 0],[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6]]
+## Output 1
+
+
+Shape: 13 by 14
+
+
+ASCII representation:
+
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|0|0|6|6|0|6|0|0|6|6
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|0|0|6|0|0|6|0|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|0|0|6|6|0|6|6|0|6|6
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|0|0|6|0|0|6|6|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|6|0|6|0|0|6|6|0|6|6
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|0|0|6|0|0|6|0|0|6|6
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+
+
+[[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6],[6, 0, 0, 6, 0, 0, 6, 6, 0, 6, 0, 0, 6, 6],[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6],[6, 0, 0, 6, 0, 0, 6, 0, 0, 6, 0, 0, 6, 0],[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6],[6, 0, 0, 6, 0, 0, 6, 6, 0, 6, 6, 0, 6, 6],[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6],[6, 0, 0, 6, 0, 0, 6, 0, 0, 6, 6, 0, 6, 0],[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6],[6, 0, 0, 6, 6, 0, 6, 0, 0, 6, 6, 0, 6, 6],[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6],[6, 0, 0, 6, 0, 0, 6, 0, 0, 6, 0, 0, 6, 6],[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6]]
+## Color changes between the Input and Output ASCII representation:
+
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |6 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 6
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |6 -> 0|  --  |  --  |6 -> 0|  --  |  --  |  --  |  --  |  --  |0 -> 6|  --  |  --  |0 -> 6
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |6 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 6|  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |6 -> 0|  --  |  --  |0 -> 6|  --  |  --  |6 -> 0|  --  |  --  |0 -> 6|  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |6 -> 0|  --  |  --  |  --  |  --  |  --  |0 -> 6
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+
+# Example 2
+
+## Input 2
+
+
+Shape: 13 by 14
+
+
+ASCII representation:
+
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|7|0|7|0|0|7|7|0|7|0|0|7|7
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|0|0|7|0|0|7|0|0|7|0|0|7|7
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|7|0|7|0|0|7|7|0|7|7|0|7|7
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|0|0|7|7|0|7|7|0|7|7|0|7|0
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|0|0|7|0|0|7|7|0|7|0|0|7|7
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|7|0|7|0|0|7|7|0|7|0|0|7|0
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+
+
+[[7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7],[7, 7, 0, 7, 0, 0, 7, 7, 0, 7, 0, 0, 7, 7],[7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7],[7, 0, 0, 7, 0, 0, 7, 0, 0, 7, 0, 0, 7, 7],[7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7],[7, 7, 0, 7, 0, 0, 7, 7, 0, 7, 7, 0, 7, 7],[7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7],[7, 0, 0, 7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 0],[7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7],[7, 0, 0, 7, 0, 0, 7, 7, 0, 7, 0, 0, 7, 7],[7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7],[7, 7, 0, 7, 0, 0, 7, 7, 0, 7, 0, 0, 7, 0],[7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7]]
+## Output 2
+
+
+Shape: 13 by 14
+
+
+ASCII representation:
+
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|0|0|7|0|0|7|7|0|7|7|0|7|7
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|0|0|7|0|0|7|0|0|7|7|0|7|0
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|0|0|7|7|0|7|7|0|7|7|0|7|7
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|7|0|7|7|0|7|0|0|7|0|0|7|7
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|0|0|7|0|0|7|0|0|7|7|0|7|7
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|0|0|7|0|0|7|7|0|7|0|0|7|7
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+
+
+[[7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7],[7, 0, 0, 7, 0, 0, 7, 7, 0, 7, 7, 0, 7, 7],[7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7],[7, 0, 0, 7, 0, 0, 7, 0, 0, 7, 7, 0, 7, 0],[7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7],[7, 0, 0, 7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7],[7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7],[7, 7, 0, 7, 7, 0, 7, 0, 0, 7, 0, 0, 7, 7],[7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7],[7, 0, 0, 7, 0, 0, 7, 0, 0, 7, 7, 0, 7, 7],[7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7],[7, 0, 0, 7, 0, 0, 7, 7, 0, 7, 0, 0, 7, 7],[7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7, 0, 7, 7]]
+## Color changes between the Input and Output ASCII representation:
+
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |7 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 7|  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 7|  --  |  --  |7 -> 0
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |7 -> 0|  --  |  --  |0 -> 7|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |0 -> 7|  --  |  --  |  --  |  --  |  --  |7 -> 0|  --  |  --  |7 -> 0|  --  |  --  |0 -> 7
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |7 -> 0|  --  |  --  |0 -> 7|  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |7 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 7
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+
+# Example 3
+
+## Input 3
+
+
+Shape: 13 by 14
+
+
+ASCII representation:
+
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|1|0|1|0|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|0|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|0|0|1|0|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|0|0|1|0|0|1|1|0|1|0
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|0|0|1|0|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|1|0|1|0|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+
+
+[[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 0, 1, 1],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 1, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 1, 0],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 0, 1, 1],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1]]
+## Output 3
+
+
+Shape: 13 by 14
+
+
+ASCII representation:
+
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|1|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|0|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|0|0|1|1|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|1|0|1|0|0|1|1|0|1|0
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|0|0|1|1|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|1|0|1|1|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+
+
+[[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 0, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1]]
+## Color changes between the Input and Output ASCII representation:
+
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |0 -> 1|  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 1|  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |1 -> 0|  --  |  --  |0 -> 1|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 1|  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |1 -> 0|  --  |  --  |1 -> 0|  --  |  --  |0 -> 1|  --  |  --  |0 -> 1|  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+
+# Example 4
+
+## Input 4
+
+
+Shape: 13 by 14
+
+
+ASCII representation:
+
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|1|0|1|0|0|1|0
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|1|0|1|0|0|1|0|0|1|0
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|1|0|1|1|0|1|0|0|1|0
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|1|0|1|1|0|1|0|0|1|0
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|1|0|1|0|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|1|0|1|0|0|1|0|0|1|0
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+
+
+[[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 0, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 0, 1, 1],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1]]
+## Output 4
+
+
+Shape: 13 by 14
+
+
+ASCII representation:
+
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|1|0|1|0|0|1|0
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|0|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|1|0|1|1|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|1|0|1|1|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|1|0|1|0|0|1|1|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|0|0|1|1|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+
+
+[[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 0, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 1, 1],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1],[1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1],[1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1]]
+## Color changes between the Input and Output ASCII representation:
+
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 1
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |1 -> 0|  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |0 -> 1|  --  |  --  |0 -> 1
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |1 -> 0|  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |0 -> 1|  --  |  --  |0 -> 1
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 1|  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |1 -> 0|  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |0 -> 1|  --  |  --  |0 -> 1
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+
+# Additional input
+
+
+Shape: 13 by 14
+
+
+ASCII representation:
+
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|6|0|6|0|0|6|6|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|6|0|6|0|0|6|6|0|6|0|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|6|0|6|6|0|6|6|0|6|0|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|6|0|6|0|0|6|6|0|6|0|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|6|0|6|0|0|6|6|0|6|0|0|6|6
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|6|0|6|6|0|6|0|0|6|6
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+
+
+[[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6],[6, 0, 0, 6, 6, 0, 6, 0, 0, 6, 6, 0, 6, 0],[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6],[6, 6, 0, 6, 0, 0, 6, 6, 0, 6, 0, 0, 6, 0],[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6],[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 0, 0, 6, 0],[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6],[6, 6, 0, 6, 0, 0, 6, 6, 0, 6, 0, 0, 6, 0],[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6],[6, 6, 0, 6, 0, 0, 6, 6, 0, 6, 0, 0, 6, 6],[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6],[6, 0, 0, 6, 6, 0, 6, 6, 0, 6, 0, 0, 6, 6],[6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6, 0, 6, 6]]
+
+[USER]
+
+                    Here is a primitive that you can build upon to solve this problem. Remember, it's okay to not to use this primitive too
+                    if you think it's not helpful.
+
+                    import numpy as np
+from collections import deque
+
+def transform(grid_lst: list[list[int]]) -> list[list[int]]:
+    grid = np.array(grid_lst)
+    h, w = grid.shape
+    
+    # Find the main blob (largest connected component of non-zero colors)
+    visited = np.zeros_like(grid, dtype=bool)
+    max_blob = []
+    max_size = 0
+    
+    directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+    
+    for i in range(h):
+        for j in range(w):
+            if grid[i, j] != 0 and not visited[i, j]:
+                # BFS to find connected component
+                queue = deque([(i, j)])
+                blob = []
+                visited[i, j] = True
+                
+                while queue:
+                    x, y = queue.popleft()
+                    blob.append((x, y))
+                    
+                    for dx, dy in directions:
+                        nx, ny = x + dx, y + dy
+                        if 0 <= nx < h and 0 <= ny < w and not visited[nx, ny] and grid[nx, ny] != 0:
+                            visited[nx, ny] = True
+                            queue.append((nx, ny))
+                
+                if len(blob) > max_size:
+                    max_size = len(blob)
+                    max_blob = blob
+    
+    if not max_blob:
+        return []
+    
+    # Find bounding box of main blob
+    rows = [p[0] for p in max_blob]
+    cols = [p[1] for p in max_blob]
+    min_row, max_row = min(rows), max(rows)
+    min_col, max_col = min(cols), max(cols)
+    
+    # Create output grid (cropped blob)
+    output_h = max_row - min_row + 1
+    output_w = max_col - min_col + 1
+    output = np.zeros((output_h, output_w), dtype=int)
+    
+    for r, c in max_blob:
+        output[r - min_row, c - min_col] = grid[r, c]
+    
+    # Find scattered colored cells (non-zero cells outside blob bounding box)
+    scattered = []
+    for i in range(h):
+        for j in range(w):
+            if grid[i, j] != 0 and (i < min_row or i > max_row or j < min_col or j > max_col):
+                scattered.append((i, j, grid[i, j]))
+    
+    # For each scattered cell, place its color in output at relative position
+    for i, j, color in scattered:
+        # Calculate relative position within output
+        rel_i = i - min_row
+        rel_j = j - min_col
+        
+        # Clamp to output bounds
+        rel_i = max(0, min(rel_i, output_h - 1))
+        rel_j = max(0, min(rel_j, output_w - 1))
+        
+        output[rel_i, rel_j] = color
+    
+    return output.tolist()
+
+                    Here are the examples that have failed:
+                    
+                
+
+[USER]
+
+                    Here is a primitive that you can build upon to solve this problem. Remember, it's okay to not to use this primitive too
+                    if you think it's not helpful.
+
+                    def transform(grid: list[list[int]]) -> list[list[int]]:
+    if not grid:
+        return []
+    h = len(grid)
+    w = len(grid[0]) if h > 0 else 0
+    # Find the 5
+    r5 = -1
+    c5 = -1
+    for rr in range(h):
+        for cc in range(w):
+            if grid[rr][cc] == 5:
+                r5 = rr
+                c5 = cc
+                break
+        if r5 != -1:
+            break
+    if r5 == -1:
+        # No 5, but assume present
+        return [[0] * 7 for _ in range(h)]
+    out_c = c5 - 8
+    out_grid = [[0] * 7 for _ in range(h)]
+    out_grid[r5][out_c] = 5
+    current_r = r5
+    current_c = out_c
+
+    # Parse shapes
+    left_shapes = []
+    right_shapes = []
+    i = 0
+    while i < h - 2:
+        # Check if block starts at i
+        has_content = False
+        for j in range(i, min(i + 3, h)):
+            for k in [0, 1, 2, 4, 5, 6]:
+                if 0 <= k < w and grid[j][k] != 0:
+                    has_content = True
+                    break
+            if has_content:
+                break
+        if not has_content:
+            i += 1
+            continue
+
+        # Left panel cols 0-2
+        left_filled = set()
+        left_color = -1
+        for j in range(3):
+            if i + j >= h:
+                break
+            for k in range(3):
+                val = grid[i + j][k]
+                if val != 0:
+                    left_filled.add((j, k))
+                    if left_color == -1:
+                        left_color = val
+        if len(left_filled) > 0 and left_color != -1:
+            if left_filled == {(0, 0), (0, 1), (1, 0), (1, 2), (2, 1)}:
+                left_shapes.append(('A', left_color))
+            elif left_filled == {(0, 0), (0, 2), (1, 1), (2, 1)}:
+                left_shapes.append(('B', left_color))
+            elif left_filled == {(0, 0), (0, 2), (1, 0), (1, 2), (2, 0), (2, 1), (2, 2)}:
+                left_shapes.append(('D', left_color))
+            elif left_filled == {(0, 0), (0, 1), (0, 2), (1, 1), (2, 0), (2, 2)}:
+                left_shapes.append(('C', left_color))
+
+        # Right panel cols 4-6
+        right_filled = set()
+        right_color = -1
+        for j in range(3):
+            if i + j >= h:
+                break
+            for k in range(3):
+                col_idx = 4 + k
+                if col_idx >= w:
+                    continue
+                val = grid[i + j][col_idx]
+                if val != 0:
+                    right_filled.add((j, k))
+                    if right_color == -1:
+                        right_color = val
+        if len(right_filled) > 0 and right_color != -1:
+            if right_filled == {(0, 0), (0, 1), (1, 0), (1, 2), (2, 1)}:
+                right_shapes.append(('A', right_color))
+            elif right_filled == {(0, 0), (0, 2), (1, 1), (2, 1)}:
+                right_shapes.append(('B', right_color))
+            elif right_filled == {(0, 0), (0, 2), (1, 0), (1, 2), (2, 0), (2, 1), (2, 2)}:
+                right_shapes.append(('D', right_color))
+            elif right_filled == {(0, 0), (0, 1), (0, 2), (1, 1), (2, 0), (2, 2)}:
+                right_shapes.append(('C', right_color))
+
+        i += 3
+
+    all_shapes = left_shapes + right_shapes
+
+    # Place shapes
+    for shape in all_shapes:
+        typ, colr = shape
+        if typ == 'A':
+            direc = 'hor_right'
+            leng = 3
+        elif typ == 'B':
+            direc = 'vert_down'
+            leng = 2
+        elif typ == 'D':
+            direc = 'hor_left'
+            leng = 2
+        elif typ == 'C':
+            direc = 'hor_left'
+            leng = 4
+        else:
+            continue  # unknown
+
+        next_r = current_r + 1
+        next_c = current_c
+        if direc == 'vert_down':
+            for d in range(leng):
+                out_r = next_r + d
+                out_c_pos = next_c
+                if 0 <= out_r < h and 0 <= out_c_pos < 7:
+                    out_grid[out_r][out_c_pos] = colr
+            current_r = next_r + leng - 1
+            current_c = next_c
+        elif direc == 'hor_right':
+            for d in range(leng):
+                out_r = next_r
+                out_c_pos = next_c + d
+                if 0 <= out_r < h and 0 <= out_c_pos < 7:
+                    out_grid[out_r][out_c_pos] = colr
+            current_r = next_r
+            current_c = next_c + leng - 1
+        elif direc == 'hor_left':
+            for d in range(leng):
+                out_r = next_r
+                out_c_pos = next_c - d
+                if 0 <= out_r < h and 0 <= out_c_pos < 7:
+                    out_grid[out_r][out_c_pos] = colr
+            current_r = next_r
+            current_c = next_c - leng + 1
+
+    return out_grid
+
+                    Here are the examples that have failed:
+                    
+                
+
+[USER]
+
+                    Here is a primitive that you can build upon to solve this problem. Remember, it's okay to not to use this primitive too
+                    if you think it's not helpful.
+
+                    def transform(grid_lst: list[list[int]]) -> list[list[int]]:
+    if not grid_lst or not grid_lst[0]:
+        return []
+    input_grid = grid_lst
+    rows = len(input_grid)
+    cols = len(input_grid[0])
+    output_grid = [row[:] for row in input_grid]
+    
+    # Find divider rows and columns
+    h_div_rows = sorted(set(r for r in range(rows) if any(input_grid[r][c] == 2 for c in range(cols))))
+    v_div_cols = sorted(set(c for c in range(cols) if any(input_grid[r][c] == 2 for r in range(rows))))
+    
+    directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+    
+    def get_components(r_start, r_end, c_start, c_end):
+        visited = set()
+        components = []
+        for r in range(r_start, r_end + 1):
+            for c in range(c_start, c_end + 1):
+                if input_grid[r][c] == 1 and (r, c) not in visited:
+                    stack = [(r, c)]
+                    comp = []
+                    visited.add((r, c))
+                    while stack:
+                        cr, cc = stack.pop()
+                        comp.append((cr, cc))
+                        for dr, dc in directions:
+                            nr = cr + dr
+                            nc = cc + dc
+                            if (r_start <= nr <= r_end and c_start <= nc <= c_end and
+                                input_grid[nr][nc] == 1 and (nr, nc) not in visited):
+                                visited.add((nr, nc))
+                                stack.append((nr, nc))
+                    if comp:
+                        components.append(comp)
+        return components
+    
+    # Process each panel
+    for i in range(len(h_div_rows) - 1):
+        r_start = h_div_rows[i] + 1
+        r_end = h_div_rows[i + 1] - 1
+        if r_start > r_end:
+            continue
+        for j in range(len(v_div_cols) - 1):
+            c_start = v_div_cols[j] + 1
+            c_end = v_div_cols[j + 1] - 1
+            if c_start > c_end:
+                continue
+            # Clear 1's in this panel in output
+            for rr in range(r_start, r_end + 1):
+                for cc in range(c_start, c_end + 1):
+                    if output_grid[rr][cc] == 1:
+                        output_grid[rr][cc] = 0
+            # Get components
+            comps = get_components(r_start, r_end, c_start, c_end)
+            # For each component, compute and apply shift
+            for comp in comps:
+                if not comp:
+                    continue
+                min_r = min(pos[0] for pos in comp)
+                max_r = max(pos[0] for pos in comp)
+                min_c = min(pos[1] for pos in comp)
+                max_c = max(pos[1] for pos in comp)
+                v_shift = 0
+                if min_r == r_start:
+                    v_shift = 1
+                elif max_r == r_end:
+                    v_shift = -1
+                h_shift = 0
+                if min_c == c_start:
+                    h_shift = 1
+                elif max_c == c_end:
+                    h_shift = -1
+                # Apply to new positions
+                for old_r, old_c in comp:
+                    new_r = old_r + v_shift
+                    new_c = old_c + h_shift
+                    output_grid[new_r][new_c] = 1
+    
+    return output_grid
+
+                    Here are the examples that have failed:
+                    Example 0 failed
+# Input ASCII representation:
+
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|6|0|6|6|0|6|0|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|0|0|6|0|0|6|0|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|6|0|6|6|0|6|6|0|6|0|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|6|0|6|0|0|6|0|0|6|0|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|6|0|6|0|0|6|6|0|6|0|0|6|6
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|0|0|6|6|0|6|0|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+
+# Incorrect Transformed Output ASCII representation:
+
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|6|0|6|6|0|6|0|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|0|0|6|0|0|6|0|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|6|0|6|6|0|6|6|0|6|0|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|6|0|6|0|0|6|0|0|6|0|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|6|0|6|0|0|6|6|0|6|0|0|6|6
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|0|0|6|6|0|6|0|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+
+# Expected Output ASCII representation:
+
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|0|0|6|6|0|6|0|0|6|6
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|0|0|6|0|0|6|0|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|0|0|6|6|0|6|6|0|6|6
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|0|0|6|0|0|6|6|0|6|0
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|6|0|6|0|0|6|6|0|6|6
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+6|0|0|6|0|0|6|0|0|6|0|0|6|6
+6|6|0|6|6|0|6|6|0|6|6|0|6|6
+
+# Color changes between transformed output and expected output ASCII representation:
+
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |6 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 6
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |6 -> 0|  --  |  --  |6 -> 0|  --  |  --  |  --  |  --  |  --  |0 -> 6|  --  |  --  |0 -> 6
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |6 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 6|  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |6 -> 0|  --  |  --  |0 -> 6|  --  |  --  |6 -> 0|  --  |  --  |0 -> 6|  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |6 -> 0|  --  |  --  |  --  |  --  |  --  |0 -> 6
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+Example 1 failed
+# Input ASCII representation:
+
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|7|0|7|0|0|7|7|0|7|0|0|7|7
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|0|0|7|0|0|7|0|0|7|0|0|7|7
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|7|0|7|0|0|7|7|0|7|7|0|7|7
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|0|0|7|7|0|7|7|0|7|7|0|7|0
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|0|0|7|0|0|7|7|0|7|0|0|7|7
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|7|0|7|0|0|7|7|0|7|0|0|7|0
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+
+# Incorrect Transformed Output ASCII representation:
+
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|7|0|7|0|0|7|7|0|7|0|0|7|7
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|0|0|7|0|0|7|0|0|7|0|0|7|7
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|7|0|7|0|0|7|7|0|7|7|0|7|7
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|0|0|7|7|0|7|7|0|7|7|0|7|0
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|0|0|7|0|0|7|7|0|7|0|0|7|7
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|7|0|7|0|0|7|7|0|7|0|0|7|0
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+
+# Expected Output ASCII representation:
+
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|0|0|7|0|0|7|7|0|7|7|0|7|7
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|0|0|7|0|0|7|0|0|7|7|0|7|0
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|0|0|7|7|0|7|7|0|7|7|0|7|7
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|7|0|7|7|0|7|0|0|7|0|0|7|7
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|0|0|7|0|0|7|0|0|7|7|0|7|7
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+7|0|0|7|0|0|7|7|0|7|0|0|7|7
+7|7|0|7|7|0|7|7|0|7|7|0|7|7
+
+# Color changes between transformed output and expected output ASCII representation:
+
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |7 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 7|  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 7|  --  |  --  |7 -> 0
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |7 -> 0|  --  |  --  |0 -> 7|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |0 -> 7|  --  |  --  |  --  |  --  |  --  |7 -> 0|  --  |  --  |7 -> 0|  --  |  --  |0 -> 7
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |7 -> 0|  --  |  --  |0 -> 7|  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |7 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 7
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+Example 2 failed
+# Input ASCII representation:
+
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|1|0|1|0|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|0|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|0|0|1|0|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|0|0|1|0|0|1|1|0|1|0
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|0|0|1|0|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|1|0|1|0|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+
+# Incorrect Transformed Output ASCII representation:
+
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|1|0|1|0|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|0|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|0|0|1|0|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|0|0|1|0|0|1|1|0|1|0
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|0|0|1|0|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|1|0|1|0|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+
+# Expected Output ASCII representation:
+
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|1|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|0|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|0|0|1|1|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|1|0|1|0|0|1|1|0|1|0
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|0|0|1|1|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|1|0|1|1|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+
+# Color changes between transformed output and expected output ASCII representation:
+
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |0 -> 1|  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 1|  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |1 -> 0|  --  |  --  |0 -> 1|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 1|  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |1 -> 0|  --  |  --  |1 -> 0|  --  |  --  |0 -> 1|  --  |  --  |0 -> 1|  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+Example 3 failed
+# Input ASCII representation:
+
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|1|0|1|0|0|1|0
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|1|0|1|0|0|1|0|0|1|0
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|1|0|1|1|0|1|0|0|1|0
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|1|0|1|1|0|1|0|0|1|0
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|1|0|1|0|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|1|0|1|0|0|1|0|0|1|0
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+
+# Incorrect Transformed Output ASCII representation:
+
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|1|0|1|0|0|1|0
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|1|0|1|0|0|1|0|0|1|0
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|1|0|1|1|0|1|0|0|1|0
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|1|0|1|1|0|1|0|0|1|0
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|1|0|1|0|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|1|0|1|1|0|1|0|0|1|0|0|1|0
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+
+# Expected Output ASCII representation:
+
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|1|0|1|0|0|1|0
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|0|0|1|0|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|1|0|1|1|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|1|0|1|1|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|1|0|1|0|0|1|1|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+1|0|0|1|0|0|1|0|0|1|1|0|1|1
+1|1|0|1|1|0|1|1|0|1|1|0|1|1
+
+# Color changes between transformed output and expected output ASCII representation:
+
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 1
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |1 -> 0|  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |0 -> 1|  --  |  --  |0 -> 1
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |1 -> 0|  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |0 -> 1|  --  |  --  |0 -> 1
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 1|  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |1 -> 0|  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |0 -> 1|  --  |  --  |0 -> 1
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+
+                

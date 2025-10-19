@@ -1,0 +1,9 @@
+{
+  "challenge_id": "Count2",
+  "best1": {
+    "train_mismatches": 7,
+    "test_mismatches": 0,
+    "combined_mismatches": 7,
+    "used_test": true
+  }
+}

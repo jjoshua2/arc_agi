@@ -1,0 +1,9 @@
+{
+  "challenge_id": "FilledNotFilled8",
+  "best1": {
+    "train_mismatches": 55,
+    "test_mismatches": 79,
+    "combined_mismatches": 134,
+    "used_test": true
+  }
+}

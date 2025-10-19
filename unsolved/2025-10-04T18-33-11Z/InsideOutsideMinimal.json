@@ -1,0 +1,9 @@
+{
+  "challenge_id": "InsideOutsideMinimal",
+  "best1": {
+    "train_mismatches": 1,
+    "test_mismatches": 1,
+    "combined_mismatches": 2,
+    "used_test": true
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "challenge_id": "CompleteShape8",
+  "best1": {
+    "train_mismatches": 34,
+    "test_mismatches": 36,
+    "combined_mismatches": 70,
+    "used_test": true
+  }
+}

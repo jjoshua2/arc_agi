@@ -1,0 +1,15 @@
+{
+  "challenge_id": "AboveBelow3",
+  "best1": {
+    "train_mismatches": 200,
+    "test_mismatches": 0,
+    "combined_mismatches": 200,
+    "used_test": true
+  },
+  "best2": {
+    "train_mismatches": 200,
+    "test_mismatches": 0,
+    "combined_mismatches": 200,
+    "used_test": true
+  }
+}

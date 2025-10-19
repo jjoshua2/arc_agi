@@ -1,0 +1,413 @@
+[
+  {
+    "role": "system",
+    "content": [
+      {
+        "type": "text",
+        "text": "You will be given some number of paired example inputs and outputs. The outputs were produced by applying a transformation rule to the inputs. In addition to the paired example inputs and outputs, there is also an additional input without a known output (or possibly multiple additional inputs). Your task is to determine the transformation rule and implement it in code.\n\nThe inputs and outputs are each \"grids\". A grid is a rectangular matrix of integers between 0 and 9 (inclusive). These grids will be shown to you as both images and grids of numbers (ASCII). You may also get an ASCII representation of the change for each cell comparing the input and output. For example 0 -> 1 means the value switched from 0 to 1 in that cell. `--` means the value in that cell did not change. The image and the grid of numbers for each input/output contain the same information: we just show both representations for convenience. Each number corresponds to a color in the image. The correspondence is as follows: black: 0, blue: 1, red: 2, green: 3, yellow: 4, grey: 5, pink: 6, orange: 7, purple: 8, brown: 9.\n\nThe transformation rule maps from each input to a single correct output, and your implementation in code must be exactly correct. Thus, you need to resolve all potential uncertainties you might have about the transformation rule. For instance, if the examples always involve some particular color being changed to another color in the output, but which color it is changed to varies between different examples, then you need to figure out what determines the correct output color. As another example, if some shape(s) or cells in the input are relocated or recolored, you need to determine which exact shapes should be relocated/recolored in the output and where they should be moved or what their color in the output should be. Whenever there are potential ambiguities or uncertainties in your current understanding of the transformation rule, you need to resolve them before implementing the transformation in code. You should resolve ambiguities and uncertainties by carefully analyzing the examples and using step by step reasoning.\n\nThe transformation rule might have multiple components and might be fairly complex. It's also reasonably common that the transformation rule has one main rule (e.g., replace cells in XYZ pattern with color ABC), but has some sort of exception (e.g., don't replace cells if they have color DEF). So, you should be on the lookout for additional parts or exceptions that you might have missed so far. Consider explicitly asking yourself (in writing): \"Are there any additional parts or exceptions to the transformation rule that I might have missed?\" (Rules don't necessarily have multiple components or exceptions, but it's common enough that you should consider it.)\n\nHere are some examples of transformation rules with multiple components or exceptions:\n\n- There is a grey grid with black holes that have different shapes and the rule is to fill in these holes with colored cells. Further, the color to use for each hole depends on the size of the hole (in terms of the number of connected cells). 1 cell holes are filled with pink, 2 cell holes are filled with blue, and 3 cell holes are filled with red.\n- The output is 3x3 while the input is 3x7. The output has red cells while the input has two \"sub-grids\" that are 3x3 and separated by a grey line in the middle. Each of the sub-grids has some colored cells (blue) and some black cells. The rule is to AND the two sub-grids together (i.e., take the intersection of where the two sub-grids are blue) and color the 3x3 cells in the output red if they are in the intersection and black otherwise.\n- The grey rectangular outlines are filled with some color in the output. Pink, orange, and purple are used to fill in the voids in different cases. The color depends on the size of the black void inside the grey outline where it is pink if the void has 1 cell (1x1 void), orange if the gap has 4 cells, and purple if the gap was 9 cells. For each void, all of the filled-in colors are the same.\n- The red shape in the input is moved. It is moved either horizontally or vertically. It is moved until moving it further would intersect with a purple shape. It is moved in the direction of the purple shape, that is, moved in whichever direction would involve it eventually intersecting with this purple shape.\n\nThese are just example rules; the actual transformation rule will be quite different. But, this should hopefully give you some sense of what transformation rules might look like.\n\nNote that in each of these cases, you would need to find the rule by carefully examining the examples and using reasoning. You would then need to implement the transformation rule precisely, taking into account all possible cases and getting all of the details right (e.g., exactly where to place various things or exactly which color to use in each case). If the details aren't fully ironed out, you should do additional reasoning to do so before implementing the transformation in code.\n\nYou'll need to carefully reason in order to determine the transformation rule. Start your response by carefully reasoning in <reasoning></reasoning> tags. Then, implement the transformation in code.\n\nYou follow a particular reasoning style. You break down complex problems into smaller parts and reason through them step by step, arriving at sub-conclusions before stating an overall conclusion. This reduces the extent to which you need to do large leaps of reasoning.\n\nYou reason in substantial detail for as long as is necessary to fully determine the transformation rule and resolve any ambiguities/uncertainties.\n\nAfter your reasoning, write code in triple backticks (```python and then ```).\nYou should write a function called `transform` which takes a single argument, the input grid as `list[list[int]]`, and returns the transformed grid (also as `list[list[int]]`).\nYour python code should not use libraries outside of the standard python libraries besides numpy.You can create helper functions.\nYou should make sure that you implement a version of the transformation which works in general (for inputs which have the same properties as the example inputs and the additional input(s)).\nDon't write tests in your python code, just output the `transform` function."
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "# Example 1\n\n## Input 1\n\n"
+      },
+      {
+        "type": "text",
+        "text": "Shape: 10 by 10\n\n"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "data:image/png;base64,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"
+        }
+      },
+      {
+        "type": "text",
+        "text": "ASCII representation:\n\n0|0|0|0|9|0|0|0|0|0\n0|0|0|0|0|0|0|0|0|0\n0|0|0|0|0|0|0|0|0|0\n0|0|0|0|8|8|0|0|0|0\n0|0|0|0|8|8|0|0|0|0\n0|0|0|0|8|8|0|0|0|0\n6|0|0|0|8|8|0|0|0|0\n0|0|0|0|0|0|0|0|0|0\n0|0|0|0|0|0|0|0|0|0\n0|0|0|0|0|4|0|0|0|0\n\n"
+      },
+      {
+        "type": "text",
+        "text": "[[0, 0, 0, 0, 9, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 8, 8, 0, 0, 0, 0],[0, 0, 0, 0, 8, 8, 0, 0, 0, 0],[0, 0, 0, 0, 8, 8, 0, 0, 0, 0],[6, 0, 0, 0, 8, 8, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 4, 0, 0, 0, 0]]"
+      },
+      {
+        "type": "text",
+        "text": "## Output 1\n\n"
+      },
+      {
+        "type": "text",
+        "text": "Shape: 10 by 10\n\n"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "data:image/png;base64,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"
+        }
+      },
+      {
+        "type": "text",
+        "text": "ASCII representation:\n\n0|0|0|0|9|0|0|0|0|0\n0|0|0|0|0|0|0|0|0|0\n0|0|0|0|0|0|0|0|0|0\n0|0|0|0|9|8|0|0|0|0\n0|0|0|0|8|8|0|0|0|0\n0|0|0|0|8|8|0|0|0|0\n6|0|0|0|6|4|0|0|0|0\n0|0|0|0|0|0|0|0|0|0\n0|0|0|0|0|0|0|0|0|0\n0|0|0|0|0|4|0|0|0|0\n\n"
+      },
+      {
+        "type": "text",
+        "text": "[[0, 0, 0, 0, 9, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 9, 8, 0, 0, 0, 0],[0, 0, 0, 0, 8, 8, 0, 0, 0, 0],[0, 0, 0, 0, 8, 8, 0, 0, 0, 0],[6, 0, 0, 0, 6, 4, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 4, 0, 0, 0, 0]]"
+      },
+      {
+        "type": "text",
+        "text": "## Color changes between the Input and Output ASCII representation:\n\n  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |8 -> 9|  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |8 -> 6|8 -> 4|  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  \n\n"
+      },
+      {
+        "type": "text",
+        "text": "# Example 2\n\n## Input 2\n\n"
+      },
+      {
+        "type": "text",
+        "text": "Shape: 10 by 10\n\n"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "data:image/png;base64,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"
+        }
+      },
+      {
+        "type": "text",
+        "text": "ASCII representation:\n\n0|0|0|0|7|0|0|0|0|0\n0|0|0|0|0|0|0|0|0|0\n0|0|0|0|0|0|0|0|0|0\n6|0|0|8|8|8|0|0|0|0\n0|0|0|8|8|8|0|0|0|0\n0|0|0|8|8|8|0|0|0|2\n0|0|0|8|8|8|0|0|0|0\n3|0|0|8|8|8|0|0|0|0\n0|0|0|0|0|0|0|0|0|0\n0|0|0|0|0|1|0|0|0|0\n\n"
+      },
+      {
+        "type": "text",
+        "text": "[[0, 0, 0, 0, 7, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[6, 0, 0, 8, 8, 8, 0, 0, 0, 0],[0, 0, 0, 8, 8, 8, 0, 0, 0, 0],[0, 0, 0, 8, 8, 8, 0, 0, 0, 2],[0, 0, 0, 8, 8, 8, 0, 0, 0, 0],[3, 0, 0, 8, 8, 8, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 1, 0, 0, 0, 0]]"
+      },
+      {
+        "type": "text",
+        "text": "## Output 2\n\n"
+      },
+      {
+        "type": "text",
+        "text": "Shape: 10 by 10\n\n"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "data:image/png;base64,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"
+        }
+      },
+      {
+        "type": "text",
+        "text": "ASCII representation:\n\n0|0|0|0|7|0|0|0|0|0\n0|0|0|0|0|0|0|0|0|0\n0|0|0|0|0|0|0|0|0|0\n6|0|0|6|7|8|0|0|0|0\n0|0|0|8|8|8|0|0|0|0\n0|0|0|8|8|2|0|0|0|2\n0|0|0|8|8|8|0|0|0|0\n3|0|0|3|8|1|0|0|0|0\n0|0|0|0|0|0|0|0|0|0\n0|0|0|0|0|1|0|0|0|0\n\n"
+      },
+      {
+        "type": "text",
+        "text": "[[0, 0, 0, 0, 7, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[6, 0, 0, 6, 7, 8, 0, 0, 0, 0],[0, 0, 0, 8, 8, 8, 0, 0, 0, 0],[0, 0, 0, 8, 8, 2, 0, 0, 0, 2],[0, 0, 0, 8, 8, 8, 0, 0, 0, 0],[3, 0, 0, 3, 8, 1, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 1, 0, 0, 0, 0]]"
+      },
+      {
+        "type": "text",
+        "text": "## Color changes between the Input and Output ASCII representation:\n\n  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |8 -> 6|8 -> 7|  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |8 -> 2|  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |8 -> 3|  --  |8 -> 1|  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  \n\n"
+      },
+      {
+        "type": "text",
+        "text": "# Example 3\n\n## Input 3\n\n"
+      },
+      {
+        "type": "text",
+        "text": "Shape: 10 by 10\n\n"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "data:image/png;base64,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"
+        }
+      },
+      {
+        "type": "text",
+        "text": "ASCII representation:\n\n0|0|0|4|0|0|0|0|0|0\n0|0|0|0|0|0|0|0|0|0\n0|0|0|0|0|0|0|0|0|0\n0|0|0|8|8|8|0|0|0|6\n3|0|0|8|8|8|0|0|0|0\n0|0|0|8|8|8|0|0|0|0\n2|0|0|8|8|8|0|0|0|0\n0|0|0|8|8|8|0|0|0|2\n0|0|0|0|0|0|0|0|0|0\n0|0|0|7|0|0|0|0|0|0\n\n"
+      },
+      {
+        "type": "text",
+        "text": "[[0, 0, 0, 4, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 8, 8, 8, 0, 0, 0, 6],[3, 0, 0, 8, 8, 8, 0, 0, 0, 0],[0, 0, 0, 8, 8, 8, 0, 0, 0, 0],[2, 0, 0, 8, 8, 8, 0, 0, 0, 0],[0, 0, 0, 8, 8, 8, 0, 0, 0, 2],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 7, 0, 0, 0, 0, 0, 0]]"
+      },
+      {
+        "type": "text",
+        "text": "## Output 3\n\n"
+      },
+      {
+        "type": "text",
+        "text": "Shape: 10 by 10\n\n"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "data:image/png;base64,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"
+        }
+      },
+      {
+        "type": "text",
+        "text": "ASCII representation:\n\n0|0|0|4|0|0|0|0|0|0\n0|0|0|0|0|0|0|0|0|0\n0|0|0|0|0|0|0|0|0|0\n0|0|0|4|8|6|0|0|0|6\n3|0|0|3|8|8|0|0|0|0\n0|0|0|8|8|8|0|0|0|0\n2|0|0|2|8|8|0|0|0|0\n0|0|0|7|8|2|0|0|0|2\n0|0|0|0|0|0|0|0|0|0\n0|0|0|7|0|0|0|0|0|0\n\n"
+      },
+      {
+        "type": "text",
+        "text": "[[0, 0, 0, 4, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 4, 8, 6, 0, 0, 0, 6],[3, 0, 0, 3, 8, 8, 0, 0, 0, 0],[0, 0, 0, 8, 8, 8, 0, 0, 0, 0],[2, 0, 0, 2, 8, 8, 0, 0, 0, 0],[0, 0, 0, 7, 8, 2, 0, 0, 0, 2],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 7, 0, 0, 0, 0, 0, 0]]"
+      },
+      {
+        "type": "text",
+        "text": "## Color changes between the Input and Output ASCII representation:\n\n  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |8 -> 4|  --  |8 -> 6|  --  |  --  |  --  |  --  \n  --  |  --  |  --  |8 -> 3|  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |8 -> 2|  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |8 -> 7|  --  |8 -> 2|  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  \n\n"
+      },
+      {
+        "type": "text",
+        "text": "# Additional input\n\n"
+      },
+      {
+        "type": "text",
+        "text": "Shape: 10 by 10\n\n"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "data:image/png;base64,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"
+        }
+      },
+      {
+        "type": "text",
+        "text": "ASCII representation:\n\n0|0|0|6|0|2|0|0|0|0\n0|0|0|0|0|0|0|0|0|0\n0|0|0|0|0|0|0|0|0|0\n9|0|8|8|8|8|0|0|0|0\n0|0|8|8|8|8|0|0|0|7\n3|0|8|8|8|8|0|0|0|0\n4|0|8|8|8|8|0|0|0|0\n0|0|0|0|0|0|0|0|0|0\n0|0|0|0|0|0|0|0|0|0\n0|0|0|0|6|0|0|0|0|0\n\n"
+      },
+      {
+        "type": "text",
+        "text": "[[0, 0, 0, 6, 0, 2, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[9, 0, 8, 8, 8, 8, 0, 0, 0, 0],[0, 0, 8, 8, 8, 8, 0, 0, 0, 7],[3, 0, 8, 8, 8, 8, 0, 0, 0, 0],[4, 0, 8, 8, 8, 8, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 6, 0, 0, 0, 0, 0]]"
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "<reasoning>\nThe outputs always have the same shape as the inputs. The outputs are similar to the inputs, but some edits have been made.\n\nI'll describe the changes from the input to the output in detail for each of the examples to infer the transformation rule. I'll also describe the input for each example.\n\nIn example 1:\n\n- A new brown (color 9) cell replaces one of the purple (color 8) cells on the top left corner of a purple rectangle.\n- A new pink (color 6) cell replaces a purple cell on the bottom left corner of the rectangle.\n- A new yellow (color 4) cell replaces a purple cell on the bottom right corner of the rectangle.\n\nThe grid is otherwise unchanged.\n\nThe input for example 1:\n\n- It has a purple rectangle in the middle.\n- It has a brown cell directly above the purple rectangle.\n- It has a pink cell directly to the left of the purple rectangle.\n- It has a yellow cell directly below the purple rectangle.\n- The brown cell is directly above the new brown cell (in the same column).\n- The pink cell is directly to the left of the new pink cell (in the same row).\n- The yellow cell is directly below the new yellow cell (in the same column).\n\nIn example 2:\n\n- A new orange (color 7) cell replaces a purple (color 8) cell on the top of the purple rectangle.\n- A new pink cell replaces a purple cell on the top left corner of the rectangle.\n- A new red (color 2) cell replaces a purple cell on the middle right side of the rectangle.\n- A new green (color 3) cell replaces a purple cell on the bottom left corner of the rectangle.\n- A new blue (color 1) cell replaces a purple cell on the bottom right corner of the rectangle.\n\nThe input for example 2:\n\n- It has a purple rectangle in the middle.\n- It has an orange cell directly above the new orange cell (in the same column).\n- It has a pink cell directly to the left of the new pink cell (in the same row).\n- It has a red cell directly to the right of the new red cell (in the same row).\n- It has a green cell directly to the left of the new green cell (in the same row).\n- It has a blue cell directly below the new blue cell (in the same column).\n\nIn example 3:\n\n- A new yellow cell replaces a purple cell on the top left corner of the purple rectangle.\n- A new pink cell replaces a purple cell on the top right corner of the rectangle.\n- A new red cell replaces a purple cell on the left side of the rectangle.\n- A new orange cell replaces a purple cell on the bottom left corner of the rectangle.\n- A new red cell replaces a purple cell on the bottom right corner of the rectangle. This is a different change than the prior red cell.\n- A new green cell replaces a purple cell on the left side of the rectangle.\n\nThe input for example 3:\n\n- It has a purple pixel in the middle.\n- It has a yellow/pink/red/orange/red/green cell in the same column/row as the new cell with the matching color.\n\nThe input for the additional example:\n\n- It has a purple rectangle in the middle.\n- It has various colored pixels around the purple rectangle.\n\nGiven these observations, we can infer the transformation rule:\n\n1. Identify a central shape (namely the purple rectangle).\n2. Look for colored cells which aren't part of the central shape.\n3. For each colored cell found around the central shape, replace a single cell on the edge of the central shape.\n4. If the colored cell is above/below the central shape, replace the top/bottom (respectively) cell in the same column on the central shape with the colored cell.\n5. If the colored cell is to the left/right of the central shape, replace the left/right cell in the same row on the central shape with the colored cell.\n\nNow let's implement this in the code.\n</reasoning>\n\n```python\nimport numpy as np\n\ndef transform(grid_lst: list[list[int]]) -> list[list[int]]:\n    grid = np.array(grid_lst)\n    purple_color = 8\n\n    # Find the bounding box of the purple rectangle\n    purple_shape = np.argwhere(grid == purple_color)\n    min_row, min_col = np.min(purple_shape, axis=0)\n    max_row, max_col = np.max(purple_shape, axis=0)\n\n    # Iterate over the grid to find colored cells around the purple rectangle\n    rows, cols = grid.shape\n    for row in range(rows):\n        for col in range(cols):\n            color = grid[row, col]\n            if color != 0 and color != purple_color:\n                # If the colored cell is above/below the central shape\n                if col >= min_col and col <= max_col:\n                    if row < min_row:\n                        grid[min_row, col] = color\n                    elif row > max_row:\n                        grid[max_row, col] = color\n                # If the colored cell is to the left/right of the central shape\n                if row >= min_row and row <= max_row:\n                    if col < min_col:\n                        grid[row, min_col] = color\n                    elif col > max_col:\n                        grid[row, max_col] = color\n\n    return grid.tolist()```"
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "Great work! Now I will give you another puzzle to solve just like that one."
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "Great, please give me the next puzzle.",
+        "cache_control": {
+          "type": "ephemeral"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "# Example 1\n\n## Input 1\n\n"
+      },
+      {
+        "type": "text",
+        "text": "Shape: 7 by 7\n\n"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUAAAAFACAIAAABC8jL9AAAEdklEQVR4nO3YMYrrQBRFwa+PFucNPC/SvQEvb9JB0aCkdaAq6+yCfXigY2b+AU3/dw8A7hMwhAkYwgQMYeflvdbasuPyLe0hM17rs2XGd94PnPGQH8WM308XGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIO2Zm9wbgJhcYwgQMYQKGMAFD2Hl5v9Zny47vvM0w4y8z1lpbZlw+9z5khgsMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQdM7N7A3CTCwxhAoYwAUOYgCHsvLzXWlt2XL6lvdZny4zvvB84w4/ywBkP+VFcYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAh7JiZ3RuAm1xgCBMwhAkYwgQMYeflvdbasuPyLe21PltmfOdtxsNnPOQv+pAZLjCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAEHbMzO4NwE0uMIQJGMIEDGEChrDz8l5rbdlx+ZZmxu/na322zPjO+4EzHvKjPGSGCwxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhB0zs3sDcJMLDGEChjABQ5iAIey8vNdaW3ZcvqWZYYYZf5nhAkOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYcfM7N4A3OQCQ5iAIUzAECZgCDsv77XWlh2Xb2lmmGHGX2a4wBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFD2DEzuzcAN7nAECZgCBMwhAkYwn4A+medfywqErEAAAAASUVORK5CYII="
+        }
+      },
+      {
+        "type": "text",
+        "text": "ASCII representation:\n\n0|0|8|8|0|0|0\n8|8|8|8|8|0|0\n0|8|8|0|8|8|0\n0|8|8|8|8|0|0\n0|0|0|8|8|0|0\n0|0|0|0|0|0|0\n0|0|0|0|0|0|0\n\n"
+      },
+      {
+        "type": "text",
+        "text": "[[0, 0, 8, 8, 0, 0, 0],[8, 8, 8, 8, 8, 0, 0],[0, 8, 8, 0, 8, 8, 0],[0, 8, 8, 8, 8, 0, 0],[0, 0, 0, 8, 8, 0, 0],[0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0]]"
+      },
+      {
+        "type": "text",
+        "text": "## Output 1\n\n"
+      },
+      {
+        "type": "text",
+        "text": "Shape: 7 by 7\n\n"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUAAAAFACAIAAABC8jL9AAAEs0lEQVR4nO3YsW1iQRhG0WVFC65hI4qgiKENQtfgkDaYIiiCyDW4iU3tF1kk8650TjbZJ8HVL73DGOMP0PR39QDgdQKGMAFDmIAh7Lh5zzmX7Nh8S9vLjOdtzYzTdY8zdvKjmPGNCwxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhB3GGKs3AC9ygSFMwBAmYAgTMIQdN+/P968lO/59vO1wxnzelswYp+sOZ9zvc8mMy+XHd9Y518zYfO7dyQwXGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIO4wxVm8AXuQCQ5iAIUzAECZgCDtu3nPOJTs239I+37+WzPj38fb9eXs8lsy4ns/fnzv5Ue73NTMulz3O2MmP4gJDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGGHMcbqDcCLXGAIEzCECRjCBAxhx817zrlkx+Zb2u3xWDLjej7vcMZ83pbMGKfrHmfs4y+6kxkuMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQdhhjrN4AvMgFhjABQ5iAIUzAEHbcvOecS3ZsvqWZ8WPG87Zmxum6xxk7+VH2McMFhjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCDmOM1RuAF7nAECZgCBMwhAkYwo6b95xzyY7NtzQzzDDjNzNcYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAh7DDGWL0BeJELDGEChjABQ5iAIey4ec85l+zYfEszwwwzfjPDBYYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwg5jjNUbgBe5wBAmYAgTMIQJGML+A65znX8ITFx/AAAAAElFTkSuQmCC"
+        }
+      },
+      {
+        "type": "text",
+        "text": "ASCII representation:\n\n0|0|1|1|0|0|0\n3|3|1|1|4|0|0\n0|3|2|0|4|4|0\n0|2|2|1|1|0|0\n0|0|0|1|1|0|0\n0|0|0|0|0|0|0\n0|0|0|0|0|0|0\n\n"
+      },
+      {
+        "type": "text",
+        "text": "[[0, 0, 1, 1, 0, 0, 0],[3, 3, 1, 1, 4, 0, 0],[0, 3, 2, 0, 4, 4, 0],[0, 2, 2, 1, 1, 0, 0],[0, 0, 0, 1, 1, 0, 0],[0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0]]"
+      },
+      {
+        "type": "text",
+        "text": "## Color changes between the Input and Output ASCII representation:\n\n  --  |  --  |8 -> 1|8 -> 1|  --  |  --  |  --  \n8 -> 3|8 -> 3|8 -> 1|8 -> 1|8 -> 4|  --  |  --  \n  --  |8 -> 3|8 -> 2|  --  |8 -> 4|8 -> 4|  --  \n  --  |8 -> 2|8 -> 2|8 -> 1|8 -> 1|  --  |  --  \n  --  |  --  |  --  |8 -> 1|8 -> 1|  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  \n\n"
+      },
+      {
+        "type": "text",
+        "text": "# Example 2\n\n## Input 2\n\n"
+      },
+      {
+        "type": "text",
+        "text": "Shape: 7 by 7\n\n"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUAAAAFACAIAAABC8jL9AAAEh0lEQVR4nO3YsQkjMRRF0Z3FxbmB7yKtBlzepmaixYl04ZxM2WPERTDXzPwBmv7uHgD8TsAQJmAIEzCEPW7ntdaWHbd/ac/13jLjM6/v4yFf45AZLuXAGV5gCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCHsmpndG4AfeYEhTMAQJmAIEzCEPW7n53pv2fGZ14Ez1lpbZtz+LB4y45BLOWTGIZfiBYYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwq6Z2b0B+JEXGMIEDGEChjABQ9jjdl5rbdlx+5f2XO8tMz7zOnCGSzlwxiGX4gWGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMKumdm9AfiRFxjCBAxhAoYwAUPY43Zea23ZcfuX9lzvLTM+8zpwhks5cMYhl+IFhjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCrpnZvQH4kRcYwgQMYQKGMAFD2ON2Xmtt2XH7l3bIjOd6b5nxmdeBMw65FDO+j15gCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCHsmpndG4AfeYEhTMAQJmAIEzCEPW7ntdaWHbd/aWZ8H5/rvWXGZ17fx0O+hhnfRy8whAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBB2zczuDcCPvMAQJmAIEzCECRjCHrfzWmvLjtu/NDPMMON/ZniBIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoawa2Z2bwB+5AWGMAFDmIAhTMAQ9g/6Z51/kIzXqwAAAABJRU5ErkJggg=="
+        }
+      },
+      {
+        "type": "text",
+        "text": "ASCII representation:\n\n0|8|0|0|8|0|0\n8|8|0|0|8|8|0\n0|8|8|0|8|8|0\n0|8|8|0|8|8|0\n0|0|8|8|0|0|0\n0|0|0|8|0|0|0\n0|0|0|0|0|0|0\n\n"
+      },
+      {
+        "type": "text",
+        "text": "[[0, 8, 0, 0, 8, 0, 0],[8, 8, 0, 0, 8, 8, 0],[0, 8, 8, 0, 8, 8, 0],[0, 8, 8, 0, 8, 8, 0],[0, 0, 8, 8, 0, 0, 0],[0, 0, 0, 8, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0]]"
+      },
+      {
+        "type": "text",
+        "text": "## Output 2\n\n"
+      },
+      {
+        "type": "text",
+        "text": "Shape: 7 by 7\n\n"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUAAAAFACAIAAABC8jL9AAAEqElEQVR4nO3YsU0kMQCG0dvTtkANRBSxRZg2CKmBkDZwEVsEETXQxKWriU6T2J/0Xubs14w+WfJljPEHaPq7egBwnoAhTMAQJmAIux7Oc84lOw5vaZ/3+5IZb7fb43GTr7HJjK+vNTNeX3f8GpvMcANDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGGXMcbqDcBJbmAIEzCECRjCBAxh18P5835fsuPtdttwxpxzyYzDy+ImM76+1sx4fd1xxiY/xQ0MYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIRdxhirNwAnuYEhTMAQJmAIEzCEXQ/nOeeSHYe3tPn9uWbGy9uOM/yUDWfs8VPcwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFD2GWMsXoDcJIbGMIEDGEChjABQ9j1cJ5zLtlxeEub359rZry87TjDT9lwxh4/xQ0MYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIRdxhirNwAnuYEhTMAQJmAIEzCEXQ/nOeeSHYe3tE1m/Lz/Lpnx/PG04YxNfooZj0c3MIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQdhljrN4AnOQGhjABQ5iAIUzAEHY9nOecS3Yc3tLMeDz+vP8umfH88fR43ORrmPF4dANDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGGXMcbqDcBJbmAIEzCECRjCBAxh18N5zrlkx+EtzQwzzPifGW5gCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCHsMsZYvQE4yQ0MYQKGMAFDmIAh7B+uc51/LhNFHgAAAABJRU5ErkJggg=="
+        }
+      },
+      {
+        "type": "text",
+        "text": "ASCII representation:\n\n0|2|0|0|4|0|0\n2|2|0|0|4|4|0\n0|1|1|0|1|1|0\n0|1|1|0|1|1|0\n0|0|3|3|0|0|0\n0|0|0|3|0|0|0\n0|0|0|0|0|0|0\n\n"
+      },
+      {
+        "type": "text",
+        "text": "[[0, 2, 0, 0, 4, 0, 0],[2, 2, 0, 0, 4, 4, 0],[0, 1, 1, 0, 1, 1, 0],[0, 1, 1, 0, 1, 1, 0],[0, 0, 3, 3, 0, 0, 0],[0, 0, 0, 3, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0]]"
+      },
+      {
+        "type": "text",
+        "text": "## Color changes between the Input and Output ASCII representation:\n\n  --  |8 -> 2|  --  |  --  |8 -> 4|  --  |  --  \n8 -> 2|8 -> 2|  --  |  --  |8 -> 4|8 -> 4|  --  \n  --  |8 -> 1|8 -> 1|  --  |8 -> 1|8 -> 1|  --  \n  --  |8 -> 1|8 -> 1|  --  |8 -> 1|8 -> 1|  --  \n  --  |  --  |8 -> 3|8 -> 3|  --  |  --  |  --  \n  --  |  --  |  --  |8 -> 3|  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  \n\n"
+      },
+      {
+        "type": "text",
+        "text": "# Example 3\n\n## Input 3\n\n"
+      },
+      {
+        "type": "text",
+        "text": "Shape: 7 by 7\n\n"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUAAAAFACAIAAABC8jL9AAAEZElEQVR4nO3YwYkjQRBFwe1FxsmBlJEqB2TeXpeCgaEvpQcRt7p9hB4Jfc3MH6Dp7+kBwH0ChjABQ5iAIeyxvZ/rfWTHZ15m/DRjrXVkxvaB04wvnOECQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxh18yc3gDc5AJDmIAhTMAQJmAIe2zv53of2fGZlxlfPmOtdWTG9p3VjP+fLjCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAEHbNzOkNwE0uMIQJGMIEDGEChrDH9n6u95Edn3l94Yy11pEZ25dFv4YZP81wgSFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGsGtmTm8AbnKBIUzAECZgCBMwhD2291rryI7tW9pzvY/M+MzLjJ9mfMl/w4z/ny4whAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBB2zczpDcBNLjCECRjCBAxhAoawx/Zeax3ZsX1LM8MMM34zwwWGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMKumTm9AbjJBYYwAUOYgCFMwBD22N5rrSM7tm9pZphhxm9muMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ9g1M6c3ADe5wBAmYAgTMIQJGMIe23utdWTH9i3NDDPM+M0MFxjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCLtm5vQG4CYXGMIEDGEChjABQ9g/tfadf5+SYYYAAAAASUVORK5CYII="
+        }
+      },
+      {
+        "type": "text",
+        "text": "ASCII representation:\n\n8|8|8|0|0|0|0\n8|8|8|8|0|0|0\n8|8|0|8|0|0|0\n0|8|8|8|0|0|0\n0|0|0|0|0|0|0\n0|0|0|0|0|0|0\n0|0|0|0|0|0|0\n\n"
+      },
+      {
+        "type": "text",
+        "text": "[[8, 8, 8, 0, 0, 0, 0],[8, 8, 8, 8, 0, 0, 0],[8, 8, 0, 8, 0, 0, 0],[0, 8, 8, 8, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0]]"
+      },
+      {
+        "type": "text",
+        "text": "## Output 3\n\n"
+      },
+      {
+        "type": "text",
+        "text": "Shape: 7 by 7\n\n"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUAAAAFACAIAAABC8jL9AAAEoElEQVR4nO3YMW1jQRhG0fXKFIIh1YIwiDENl8GQ0jQyIAwiVTCExLbOq6LXzLvSOd10nyxf/dI7jTH+AE1/Vw8A9hMwhAkYwgQMYefNe37el+wY/24HnPHxMZfMuF5/fFmcc82MzQdOMw44wwWGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMJOY4zVG4CdXGAIEzCECRjCBAxh5817ft6X7Bj/bgec8fExl8y4Xn98WTzIjDnXzNh8ZzXj+ekCQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhpzHG6g3ATi4whAkYwgQMYQKGsPPm/fX2vWTH6/vLAWfMOZfM2HxZvD8eS2bcLpfn50F+DTOeny4whAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBB2GmOs3gDs5AJDmIAhTMAQJmAIO2/ec84lOzbf0r7evpfMeH1/eX7eH48lM26XywFnHOS/Ycbz0wWGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMJOY4zVG4CdXGAIEzCECRjCBAxh5817zrlkx+ZbmhlmmPGbGS4whAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBB2GmOs3gDs5AJDmIAhTMAQJmAIO2/ec84lOzbf0swww4zfzHCBIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoaw0xhj9QZgJxcYwgQMYQKGMAFD2HnznnMu2bH5lmaGGWb8ZoYLDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCEncYYqzcAO7nAECZgCBMwhAkYwv4DlDOdf9NnmnEAAAAASUVORK5CYII="
+        }
+      },
+      {
+        "type": "text",
+        "text": "ASCII representation:\n\n1|1|4|0|0|0|0\n1|1|4|4|0|0|0\n3|3|0|2|0|0|0\n0|3|2|2|0|0|0\n0|0|0|0|0|0|0\n0|0|0|0|0|0|0\n0|0|0|0|0|0|0\n\n"
+      },
+      {
+        "type": "text",
+        "text": "[[1, 1, 4, 0, 0, 0, 0],[1, 1, 4, 4, 0, 0, 0],[3, 3, 0, 2, 0, 0, 0],[0, 3, 2, 2, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0]]"
+      },
+      {
+        "type": "text",
+        "text": "## Color changes between the Input and Output ASCII representation:\n\n8 -> 1|8 -> 1|8 -> 4|  --  |  --  |  --  |  --  \n8 -> 1|8 -> 1|8 -> 4|8 -> 4|  --  |  --  |  --  \n8 -> 3|8 -> 3|  --  |8 -> 2|  --  |  --  |  --  \n  --  |8 -> 3|8 -> 2|8 -> 2|  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  \n\n"
+      },
+      {
+        "type": "text",
+        "text": "# Additional input\n\n"
+      },
+      {
+        "type": "text",
+        "text": "Shape: 7 by 7\n\n"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUAAAAFACAIAAABC8jL9AAAEa0lEQVR4nO3YwYnjQBRF0dGg4JzAd5CuBBxebwfBQKNN6cI5u9o92n35oGNm/gBNf3cPAO4TMIQJGMIEDGHn5b3W2rLj8i3ttT5bZnzn/cAZfpQHznjIj+ICQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhx8zs3gDc5AJDmIAhTMAQJmAIOy/v1/ps2fGdtxlmhGastbbMuHx1doEhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChrBjZnZvAG5ygSFMwBAmYAgTMISdl/daa8uOy7e01/psmfGd9wNn+FH+fT7kr/GQGS4whAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBB2zMzuDcBNLjCECRjCBAxhAoaw8/Jea23ZcfmW9pAZr/XZMuM7bzP+N+Mh/xsPmeECQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhx8zs3gDc5AJDmIAhTMAQJmAIOy/vtdaWHZdvaWaYYcZvZrjAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUPYMTO7NwA3ucAQJmAIEzCECRjCzst7rbVlx+VbmhlmmPGbGS4whAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBB2zMzuDcBNLjCECRjCBAxhAoaw8/Jea23ZcfmWZoYZZvxmhgsMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQdM7N7A3CTCwxhAoYwAUOYgCHsBylWnX9NRXY3AAAAAElFTkSuQmCC"
+        }
+      },
+      {
+        "type": "text",
+        "text": "ASCII representation:\n\n0|8|8|0|8|8|0\n8|8|8|8|8|8|0\n0|8|8|0|8|0|0\n0|0|8|8|8|0|0\n0|0|0|0|0|0|0\n0|0|0|0|0|0|0\n0|0|0|0|0|0|0\n\n"
+      },
+      {
+        "type": "text",
+        "text": "[[0, 8, 8, 0, 8, 8, 0],[8, 8, 8, 8, 8, 8, 0],[0, 8, 8, 0, 8, 0, 0],[0, 0, 8, 8, 8, 0, 0],[0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0]]",
+        "cache_control": {
+          "type": "ephemeral"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "\n                    Here is a primitive that you can build upon to solve this problem. Remember, it's okay to not to use this primitive too\n                    if you think it's not helpful.\n\n                    import numpy as np\nfrom collections import Counter\n\ndef transform(grid_lst: list[list[int]]) -> list[list[int]]:\n    if not grid_lst or not grid_lst[0]:\n        return []\n    grid = np.array(grid_lst)\n    rows, cols = grid.shape\n\n    # Find S, the separator color\n    S = None\n    for r in range(rows):\n        row_vals = set(grid[r])\n        if len(row_vals) == 1 and 0 not in row_vals:\n            S = grid[r][0]\n            break\n    if S is None:\n        return []  # No separator found, unlikely\n\n    # Find vertical separator columns using first row\n    seps = [c for c in range(cols) if grid[0][c] == S]\n\n    # Build big_cols: list of (start, end) for sections with width >=3\n    big_cols = []\n    i = 0\n    n_seps = len(seps)\n    while i <= n_seps:\n        if i == 0:\n            st = 0\n        else:\n            st = seps[i-1] + 1\n        if i < n_seps:\n            en = seps[i] - 1\n        else:\n            en = cols - 1\n        if st <= en and en - st + 1 >= 3:\n            big_cols.append((st, en))\n        i += 1\n\n    num_cols = len(big_cols)\n\n    # Find content pairs: consecutive identical rows\n    big_row_colors = []\n    for r in range(rows - 1):\n        if np.array_equal(grid[r], grid[r+1]):\n            this_row = []\n            for st, en in big_cols:\n                pos1 = st + 1\n                pos2 = st + 2\n                if pos2 > en:\n                    colr = 0\n                else:\n                    c1 = grid[r][pos1]\n                    c2 = grid[r][pos2]\n                    if c1 == c2 and c1 != 0 and c1 != S:\n                        colr = c1\n                    else:\n                        colr = 0\n                this_row.append(colr)\n            big_row_colors.append(this_row)\n\n    # Collect all non-zero colors\n    all_colors = []\n    for row in big_row_colors:\n        all_colors.extend([c for c in row if c > 0])\n\n    if not all_colors:\n        return [[0] * num_cols]  # or empty, but assume\n\n    freq = Counter(all_colors)\n\n    # Sort by frequency asc, then color asc\n    color_freq_pairs = sorted(freq.items(), key=lambda x: (x[1], x[0]))\n\n    # Build output rows\n    output = []\n    for c, f in color_freq_pairs:\n        row = [c] * f + [0] * (num_cols - f)\n        output.append(row)\n\n    return output\n\n                    Here are the examples that have failed:\n                    \n                "
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "\n                    Here is a primitive that you can build upon to solve this problem. Remember, it's okay to not to use this primitive too\n                    if you think it's not helpful.\n\n                    from collections import deque\nfrom typing import List, Tuple\n\ndef transform(grid: List[List[int]]) -> List[List[int]]:\n    if not grid or not grid[0]:\n        return []\n    rows = len(grid)\n    cols = len(grid[0])\n    output = [row[:] for row in grid]\n    \n    # Directions for 4-connectivity\n    directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]\n    \n    # Step 1: Label connected components of 3's (green)\n    label_3 = [[-1] * cols for _ in range(rows)]\n    cid = 0\n    for i in range(rows):\n        for j in range(cols):\n            if grid[i][j] == 3 and label_3[i][j] == -1:\n                # Iterative DFS to label component\n                stack = [(i, j)]\n                label_3[i][j] = cid\n                while stack:\n                    x, y = stack.pop()\n                    for dx, dy in directions:\n                        nx, ny = x + dx, y + dy\n                        if 0 <= nx < rows and 0 <= ny < cols and grid[nx][ny] == 3 and label_3[nx][ny] == -1:\n                            label_3[nx][ny] = cid\n                            stack.append((nx, ny))\n                cid += 1\n    num_components = cid\n    \n    # Step 2: Mark outside 0's using BFS from border 0's\n    visited_0 = [[False] * cols for _ in range(rows)]\n    q = deque()\n    # Add border 0's to queue\n    for i in range(rows):\n        if grid[i][0] == 0 and not visited_0[i][0]:\n            q.append((i, 0))\n            visited_0[i][0] = True\n        if grid[i][cols - 1] == 0 and not visited_0[i][cols - 1]:\n            q.append((i, cols - 1))\n            visited_0[i][cols - 1] = True\n    for j in range(cols):\n        if grid[0][j] == 0 and not visited_0[0][j]:\n            q.append((0, j))\n            visited_0[0][j] = True\n        if grid[rows - 1][j] == 0 and not visited_0[rows - 1][j]:\n            q.append((rows - 1, j))\n            visited_0[rows - 1][j] = True\n    # BFS to mark all reachable 0's as outside\n    while q:\n        x, y = q.popleft()\n        for dx, dy in directions:\n            nx, ny = x + dx, y + dy\n            if 0 <= nx < rows and 0 <= ny < cols and grid[nx][ny] == 0 and not visited_0[nx][ny]:\n                visited_0[nx][ny] = True\n                q.append((nx, ny))\n    \n    # Step 3: Find inner 0-components and assign to enclosing C\n    enclosed_count = [0] * num_components\n    for i in range(rows):\n        for j in range(cols):\n            if grid[i][j] == 0 and not visited_0[i][j]:\n                # New inner 0-component, collect cells and adjacent CIDs using iterative DFS\n                inner_cells = []\n                adj_cids = set()\n                stack = [(i, j)]\n                visited_0[i][j] = True\n                inner_cells.append((i, j))\n                while stack:\n                    x, y = stack.pop()\n                    for dx, dy in directions:\n                        nx, ny = x + dx, y + dy\n                        if 0 <= nx < rows and 0 <= ny < cols:\n                            if grid[nx][ny] == 0 and not visited_0[nx][ny]:\n                                visited_0[nx][ny] = True\n                                stack.append((nx, ny))\n                                inner_cells.append((nx, ny))\n                            elif grid[nx][ny] == 3 and label_3[nx][ny] != -1:\n                                adj_cids.add(label_3[nx][ny])\n                # If enclosed by exactly one component\n                if len(adj_cids) == 1:\n                    the_cid = next(iter(adj_cids))\n                    enclosed_count[the_cid] += 1\n    \n    # Step 4: Color the 3's in each component\n    for i in range(rows):\n        for j in range(cols):\n            if grid[i][j] == 3:\n                cid = label_3[i][j]\n                color = enclosed_count[cid]\n                output[i][j] = color\n    \n    return output\n\n                    Here are the examples that have failed:\n                    Example 0 failed\n# Input ASCII representation:\n\n0|0|8|8|0|0|0\n8|8|8|8|8|0|0\n0|8|8|0|8|8|0\n0|8|8|8|8|0|0\n0|0|0|8|8|0|0\n0|0|0|0|0|0|0\n0|0|0|0|0|0|0\n\n# Incorrect Transformed Output ASCII representation:\n\n0|0|8|8|0|0|0\n8|8|8|8|8|0|0\n0|8|8|0|8|8|0\n0|8|8|8|8|0|0\n0|0|0|8|8|0|0\n0|0|0|0|0|0|0\n0|0|0|0|0|0|0\n\n# Expected Output ASCII representation:\n\n0|0|1|1|0|0|0\n3|3|1|1|4|0|0\n0|3|2|0|4|4|0\n0|2|2|1|1|0|0\n0|0|0|1|1|0|0\n0|0|0|0|0|0|0\n0|0|0|0|0|0|0\n\n# Color changes between transformed output and expected output ASCII representation:\n\n  --  |  --  |8 -> 1|8 -> 1|  --  |  --  |  --  \n8 -> 3|8 -> 3|8 -> 1|8 -> 1|8 -> 4|  --  |  --  \n  --  |8 -> 3|8 -> 2|  --  |8 -> 4|8 -> 4|  --  \n  --  |8 -> 2|8 -> 2|8 -> 1|8 -> 1|  --  |  --  \n  --  |  --  |  --  |8 -> 1|8 -> 1|  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  \n\nExample 1 failed\n# Input ASCII representation:\n\n0|8|0|0|8|0|0\n8|8|0|0|8|8|0\n0|8|8|0|8|8|0\n0|8|8|0|8|8|0\n0|0|8|8|0|0|0\n0|0|0|8|0|0|0\n0|0|0|0|0|0|0\n\n# Incorrect Transformed Output ASCII representation:\n\n0|8|0|0|8|0|0\n8|8|0|0|8|8|0\n0|8|8|0|8|8|0\n0|8|8|0|8|8|0\n0|0|8|8|0|0|0\n0|0|0|8|0|0|0\n0|0|0|0|0|0|0\n\n# Expected Output ASCII representation:\n\n0|2|0|0|4|0|0\n2|2|0|0|4|4|0\n0|1|1|0|1|1|0\n0|1|1|0|1|1|0\n0|0|3|3|0|0|0\n0|0|0|3|0|0|0\n0|0|0|0|0|0|0\n\n# Color changes between transformed output and expected output ASCII representation:\n\n  --  |8 -> 2|  --  |  --  |8 -> 4|  --  |  --  \n8 -> 2|8 -> 2|  --  |  --  |8 -> 4|8 -> 4|  --  \n  --  |8 -> 1|8 -> 1|  --  |8 -> 1|8 -> 1|  --  \n  --  |8 -> 1|8 -> 1|  --  |8 -> 1|8 -> 1|  --  \n  --  |  --  |8 -> 3|8 -> 3|  --  |  --  |  --  \n  --  |  --  |  --  |8 -> 3|  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  \n\nExample 2 failed\n# Input ASCII representation:\n\n8|8|8|0|0|0|0\n8|8|8|8|0|0|0\n8|8|0|8|0|0|0\n0|8|8|8|0|0|0\n0|0|0|0|0|0|0\n0|0|0|0|0|0|0\n0|0|0|0|0|0|0\n\n# Incorrect Transformed Output ASCII representation:\n\n8|8|8|0|0|0|0\n8|8|8|8|0|0|0\n8|8|0|8|0|0|0\n0|8|8|8|0|0|0\n0|0|0|0|0|0|0\n0|0|0|0|0|0|0\n0|0|0|0|0|0|0\n\n# Expected Output ASCII representation:\n\n1|1|4|0|0|0|0\n1|1|4|4|0|0|0\n3|3|0|2|0|0|0\n0|3|2|2|0|0|0\n0|0|0|0|0|0|0\n0|0|0|0|0|0|0\n0|0|0|0|0|0|0\n\n# Color changes between transformed output and expected output ASCII representation:\n\n8 -> 1|8 -> 1|8 -> 4|  --  |  --  |  --  |  --  \n8 -> 1|8 -> 1|8 -> 4|8 -> 4|  --  |  --  |  --  \n8 -> 3|8 -> 3|  --  |8 -> 2|  --  |  --  |  --  \n  --  |8 -> 3|8 -> 2|8 -> 2|  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  \n  --  |  --  |  --  |  --  |  --  |  --  |  --  \n\n\n                "
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "\n                    Here is a primitive that you can build upon to solve this problem. Remember, it's okay to not to use this primitive too\n                    if you think it's not helpful.\n\n                    from collections import deque\nimport sys\n\ndef transform(grid_lst: list[list[int]]) -> list[list[int]]:\n    if not grid_lst or not grid_lst[0]:\n        return []\n    h = len(grid_lst)\n    w = len(grid_lst[0])\n    visited = [[False] * w for _ in range(h)]\n    components = []\n    dirs = [(-1, 0), (1, 0), (0, -1), (0, 1)]\n    MIN_SIZE = 12  # Threshold to filter noise; adjust if needed based on examples\n\n    for r in range(h):\n        for c in range(w):\n            if grid_lst[r][c] > 0 and not visited[r][c]:\n                color = grid_lst[r][c]\n                q = deque([(r, c)])\n                visited[r][c] = True\n                positions = [(r, c)]\n                min_r, max_r = r, r\n                min_c, max_c = c, c\n\n                while q:\n                    cr, cc = q.popleft()\n                    for dr, dc in dirs:\n                        nr, nc = cr + dr, cc + dc\n                        if 0 <= nr < h and 0 <= nc < w and not visited[nr][nc] and grid_lst[nr][nc] == color:\n                            visited[nr][nc] = True\n                            q.append((nr, nc))\n                            positions.append((nr, nc))\n                            min_r = min(min_r, nr)\n                            max_r = max(max_r, nr)\n                            min_c = min(min_c, nc)\n                            max_c = max(max_c, nc)\n\n                num_cells = len(positions)\n                bbox_area = (max_r - min_r + 1) * (max_c - min_c + 1)\n                if num_cells >= MIN_SIZE and num_cells == bbox_area:\n                    components.append((min_r, min_c, color))\n\n    # Sort by min_r then min_c\n    components.sort(key=lambda x: (x[0], x[1]))\n\n    # Extract colors in order\n    colors_list = [comp[2] for comp in components]\n    num = len(colors_list)\n    if num == 0:\n        return []\n\n    # Arrange into grid with 3 columns\n    num_rows = (num + 2) // 3\n    num_cols = 3\n    output = [[0] * num_cols for _ in range(num_rows)]\n    for i in range(num):\n        row = i // num_cols\n        col = i % num_cols\n        output[row][col] = colors_list[i]\n\n    # If last row incomplete, keep 0s; assuming puzzle has exact multiples\n    return output\n\n                    Here are the examples that have failed:\n                    \n                "
+      }
+    ]
+  }
+]

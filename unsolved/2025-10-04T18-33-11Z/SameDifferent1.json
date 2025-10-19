@@ -1,0 +1,15 @@
+{
+  "challenge_id": "SameDifferent1",
+  "best1": {
+    "train_mismatches": 33,
+    "test_mismatches": 25,
+    "combined_mismatches": 58,
+    "used_test": true
+  },
+  "best2": {
+    "train_mismatches": 37,
+    "test_mismatches": 25,
+    "combined_mismatches": 62,
+    "used_test": true
+  }
+}

@@ -892,6 +892,14 @@ async def main() -> None:
 
     print(f"FINAL: Total cost in cents: {total_cost_in_cents[0]}")
 
+    # Cleanup fast sweep resources
+    try:
+        from src.transform_pool import shutdown_global_pool
+        shutdown_global_pool()
+        print("Cleaned up transform pool")
+    except Exception as e:
+        print(f"Warning: failed to cleanup transform pool: {e}")
+
     total_runtime_seconds = time.perf_counter() - start_time
     print(
         "FINAL: Total runtime: "

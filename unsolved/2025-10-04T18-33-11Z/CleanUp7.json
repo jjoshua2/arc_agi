@@ -1,0 +1,9 @@
+{
+  "challenge_id": "CleanUp7",
+  "best1": {
+    "train_mismatches": 34,
+    "test_mismatches": 25,
+    "combined_mismatches": 59,
+    "used_test": true
+  }
+}

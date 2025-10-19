@@ -1,0 +1,15 @@
+{
+  "challenge_id": "CleanUp4",
+  "best1": {
+    "train_mismatches": 2,
+    "test_mismatches": 22,
+    "combined_mismatches": 24,
+    "used_test": true
+  },
+  "best2": {
+    "train_mismatches": 8,
+    "test_mismatches": 22,
+    "combined_mismatches": 30,
+    "used_test": true
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "challenge_id": "a64e4611",
+  "best1": {
+    "train_mismatches": 883,
+    "test_mismatches": 232,
+    "combined_mismatches": 1115,
+    "used_test": true
+  },
+  "best2": {
+    "train_mismatches": 883,
+    "test_mismatches": 232,
+    "combined_mismatches": 1115,
+    "used_test": true
+  }
+}

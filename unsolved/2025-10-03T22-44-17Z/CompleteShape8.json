@@ -1,0 +1,10 @@
+{
+  "challenge_id": "CompleteShape8",
+  "fallback_library": true,
+  "library_selection": {
+    "primitive_id": "1188",
+    "num_train_correct": 0.0,
+    "avg_train_accuracy": 0.905
+  },
+  "note": "no_llm_attempts_recorded_this_round"
+}

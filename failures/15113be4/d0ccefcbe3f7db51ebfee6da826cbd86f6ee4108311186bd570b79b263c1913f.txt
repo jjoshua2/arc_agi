@@ -1,0 +1,1958 @@
+challenge_id: 15113be4
+model: x-ai/grok-4-fast:free
+prompt_hash: d0ccefcbe3f7db51ebfee6da826cbd86f6ee4108311186bd570b79b263c1913f
+timestamp: 1758853097
+
+Instructions:
+- The text below is a readable dump of the prompt messages (roles + text).
+- The JSON file contains the original messages structure.
+- If available, wire.json contains the exact message payload sent to the provider.
+- Paste into your UI accordingly and save the assistant response to manual_responses/d0ccefcbe3f7db51ebfee6da826cbd86f6ee4108311186bd570b79b263c1913f.txt
+
+[SYSTEM]
+You will be given some number of paired example inputs and outputs. The outputs were produced by applying a transformation rule to the inputs. In addition to the paired example inputs and outputs, there is also an additional input without a known output (or possibly multiple additional inputs). Your task is to determine the transformation rule and implement it in code.
+
+The inputs and outputs are each "grids". A grid is a rectangular matrix of integers between 0 and 9 (inclusive). These grids will be shown to you as both images and grids of numbers (ASCII). You may also get an ASCII representation of the change for each cell comparing the input and output. For example 0 -> 1 means the value switched from 0 to 1 in that cell. `--` means the value in that cell did not change. The image and the grid of numbers for each input/output contain the same information: we just show both representations for convenience. Each number corresponds to a color in the image. The correspondence is as follows: black: 0, blue: 1, red: 2, green: 3, yellow: 4, grey: 5, pink: 6, orange: 7, purple: 8, brown: 9.
+
+The transformation rule maps from each input to a single correct output, and your implementation in code must be exactly correct. Thus, you need to resolve all potential uncertainties you might have about the transformation rule. For instance, if the examples always involve some particular color being changed to another color in the output, but which color it is changed to varies between different examples, then you need to figure out what determines the correct output color. As another example, if some shape(s) or cells in the input are relocated or recolored, you need to determine which exact shapes should be relocated/recolored in the output and where they should be moved or what their color in the output should be. Whenever there are potential ambiguities or uncertainties in your current understanding of the transformation rule, you need to resolve them before implementing the transformation in code. You should resolve ambiguities and uncertainties by carefully analyzing the examples and using step by step reasoning.
+
+The transformation rule might have multiple components and might be fairly complex. It's also reasonably common that the transformation rule has one main rule (e.g., replace cells in XYZ pattern with color ABC), but has some sort of exception (e.g., don't replace cells if they have color DEF). So, you should be on the lookout for additional parts or exceptions that you might have missed so far. Consider explicitly asking yourself (in writing): "Are there any additional parts or exceptions to the transformation rule that I might have missed?" (Rules don't necessarily have multiple components or exceptions, but it's common enough that you should consider it.)
+
+Here are some examples of transformation rules with multiple components or exceptions:
+
+- There is a grey grid with black holes that have different shapes and the rule is to fill in these holes with colored cells. Further, the color to use for each hole depends on the size of the hole (in terms of the number of connected cells). 1 cell holes are filled with pink, 2 cell holes are filled with blue, and 3 cell holes are filled with red.
+- The output is 3x3 while the input is 3x7. The output has red cells while the input has two "sub-grids" that are 3x3 and separated by a grey line in the middle. Each of the sub-grids has some colored cells (blue) and some black cells. The rule is to AND the two sub-grids together (i.e., take the intersection of where the two sub-grids are blue) and color the 3x3 cells in the output red if they are in the intersection and black otherwise.
+- The grey rectangular outlines are filled with some color in the output. Pink, orange, and purple are used to fill in the voids in different cases. The color depends on the size of the black void inside the grey outline where it is pink if the void has 1 cell (1x1 void), orange if the gap has 4 cells, and purple if the gap was 9 cells. For each void, all of the filled-in colors are the same.
+- The red shape in the input is moved. It is moved either horizontally or vertically. It is moved until moving it further would intersect with a purple shape. It is moved in the direction of the purple shape, that is, moved in whichever direction would involve it eventually intersecting with this purple shape.
+
+These are just example rules; the actual transformation rule will be quite different. But, this should hopefully give you some sense of what transformation rules might look like.
+
+Note that in each of these cases, you would need to find the rule by carefully examining the examples and using reasoning. You would then need to implement the transformation rule precisely, taking into account all possible cases and getting all of the details right (e.g., exactly where to place various things or exactly which color to use in each case). If the details aren't fully ironed out, you should do additional reasoning to do so before implementing the transformation in code.
+
+You'll need to carefully reason in order to determine the transformation rule. Start your response by carefully reasoning in <reasoning></reasoning> tags. Then, implement the transformation in code.
+
+You follow a particular reasoning style. You break down complex problems into smaller parts and reason through them step by step, arriving at sub-conclusions before stating an overall conclusion. This reduces the extent to which you need to do large leaps of reasoning.
+
+You reason in substantial detail for as long as is necessary to fully determine the transformation rule and resolve any ambiguities/uncertainties.
+
+After your reasoning, write code in triple backticks (```python and then ```).
+You should write a function called `transform` which takes a single argument, the input grid as `list[list[int]]`, and returns the transformed grid (also as `list[list[int]]`).
+Your python code should not use libraries outside of the standard python libraries besides numpy.You can create helper functions.
+You should make sure that you implement a version of the transformation which works in general (for inputs which have the same properties as the example inputs and the additional input(s)).
+Don't write tests in your python code, just output the `transform` function.
+
+[USER]
+# Example 1
+
+## Input 1
+
+
+Shape: 10 by 10
+
+
+ASCII representation:
+
+0|0|0|0|9|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|8|8|0|0|0|0
+0|0|0|0|8|8|0|0|0|0
+0|0|0|0|8|8|0|0|0|0
+6|0|0|0|8|8|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|4|0|0|0|0
+
+
+[[0, 0, 0, 0, 9, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 8, 8, 0, 0, 0, 0],[0, 0, 0, 0, 8, 8, 0, 0, 0, 0],[0, 0, 0, 0, 8, 8, 0, 0, 0, 0],[6, 0, 0, 0, 8, 8, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 4, 0, 0, 0, 0]]
+## Output 1
+
+
+Shape: 10 by 10
+
+
+ASCII representation:
+
+0|0|0|0|9|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|9|8|0|0|0|0
+0|0|0|0|8|8|0|0|0|0
+0|0|0|0|8|8|0|0|0|0
+6|0|0|0|6|4|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|4|0|0|0|0
+
+
+[[0, 0, 0, 0, 9, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 9, 8, 0, 0, 0, 0],[0, 0, 0, 0, 8, 8, 0, 0, 0, 0],[0, 0, 0, 0, 8, 8, 0, 0, 0, 0],[6, 0, 0, 0, 6, 4, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 4, 0, 0, 0, 0]]
+## Color changes between the Input and Output ASCII representation:
+
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |8 -> 9|  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |8 -> 6|8 -> 4|  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+
+# Example 2
+
+## Input 2
+
+
+Shape: 10 by 10
+
+
+ASCII representation:
+
+0|0|0|0|7|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+6|0|0|8|8|8|0|0|0|0
+0|0|0|8|8|8|0|0|0|0
+0|0|0|8|8|8|0|0|0|2
+0|0|0|8|8|8|0|0|0|0
+3|0|0|8|8|8|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|1|0|0|0|0
+
+
+[[0, 0, 0, 0, 7, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[6, 0, 0, 8, 8, 8, 0, 0, 0, 0],[0, 0, 0, 8, 8, 8, 0, 0, 0, 0],[0, 0, 0, 8, 8, 8, 0, 0, 0, 2],[0, 0, 0, 8, 8, 8, 0, 0, 0, 0],[3, 0, 0, 8, 8, 8, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 1, 0, 0, 0, 0]]
+## Output 2
+
+
+Shape: 10 by 10
+
+
+ASCII representation:
+
+0|0|0|0|7|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+6|0|0|6|7|8|0|0|0|0
+0|0|0|8|8|8|0|0|0|0
+0|0|0|8|8|2|0|0|0|2
+0|0|0|8|8|8|0|0|0|0
+3|0|0|3|8|1|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|1|0|0|0|0
+
+
+[[0, 0, 0, 0, 7, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[6, 0, 0, 6, 7, 8, 0, 0, 0, 0],[0, 0, 0, 8, 8, 8, 0, 0, 0, 0],[0, 0, 0, 8, 8, 2, 0, 0, 0, 2],[0, 0, 0, 8, 8, 8, 0, 0, 0, 0],[3, 0, 0, 3, 8, 1, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 1, 0, 0, 0, 0]]
+## Color changes between the Input and Output ASCII representation:
+
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |8 -> 6|8 -> 7|  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |8 -> 2|  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |8 -> 3|  --  |8 -> 1|  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+
+# Example 3
+
+## Input 3
+
+
+Shape: 10 by 10
+
+
+ASCII representation:
+
+0|0|0|4|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|8|8|8|0|0|0|6
+3|0|0|8|8|8|0|0|0|0
+0|0|0|8|8|8|0|0|0|0
+2|0|0|8|8|8|0|0|0|0
+0|0|0|8|8|8|0|0|0|2
+0|0|0|0|0|0|0|0|0|0
+0|0|0|7|0|0|0|0|0|0
+
+
+[[0, 0, 0, 4, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 8, 8, 8, 0, 0, 0, 6],[3, 0, 0, 8, 8, 8, 0, 0, 0, 0],[0, 0, 0, 8, 8, 8, 0, 0, 0, 0],[2, 0, 0, 8, 8, 8, 0, 0, 0, 0],[0, 0, 0, 8, 8, 8, 0, 0, 0, 2],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 7, 0, 0, 0, 0, 0, 0]]
+## Output 3
+
+
+Shape: 10 by 10
+
+
+ASCII representation:
+
+0|0|0|4|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|4|8|6|0|0|0|6
+3|0|0|3|8|8|0|0|0|0
+0|0|0|8|8|8|0|0|0|0
+2|0|0|2|8|8|0|0|0|0
+0|0|0|7|8|2|0|0|0|2
+0|0|0|0|0|0|0|0|0|0
+0|0|0|7|0|0|0|0|0|0
+
+
+[[0, 0, 0, 4, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 4, 8, 6, 0, 0, 0, 6],[3, 0, 0, 3, 8, 8, 0, 0, 0, 0],[0, 0, 0, 8, 8, 8, 0, 0, 0, 0],[2, 0, 0, 2, 8, 8, 0, 0, 0, 0],[0, 0, 0, 7, 8, 2, 0, 0, 0, 2],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 7, 0, 0, 0, 0, 0, 0]]
+## Color changes between the Input and Output ASCII representation:
+
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |8 -> 4|  --  |8 -> 6|  --  |  --  |  --  |  --  
+  --  |  --  |  --  |8 -> 3|  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |8 -> 2|  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |8 -> 7|  --  |8 -> 2|  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+
+# Additional input
+
+
+Shape: 10 by 10
+
+
+ASCII representation:
+
+0|0|0|6|0|2|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+9|0|8|8|8|8|0|0|0|0
+0|0|8|8|8|8|0|0|0|7
+3|0|8|8|8|8|0|0|0|0
+4|0|8|8|8|8|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|0|0|0|0|0|0
+0|0|0|0|6|0|0|0|0|0
+
+
+[[0, 0, 0, 6, 0, 2, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[9, 0, 8, 8, 8, 8, 0, 0, 0, 0],[0, 0, 8, 8, 8, 8, 0, 0, 0, 7],[3, 0, 8, 8, 8, 8, 0, 0, 0, 0],[4, 0, 8, 8, 8, 8, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],[0, 0, 0, 0, 6, 0, 0, 0, 0, 0]]
+
+[ASSISTANT]
+<reasoning>
+The outputs always have the same shape as the inputs. The outputs are similar to the inputs, but some edits have been made.
+
+I'll describe the changes from the input to the output in detail for each of the examples to infer the transformation rule. I'll also describe the input for each example.
+
+In example 1:
+
+- A new brown (color 9) cell replaces one of the purple (color 8) cells on the top left corner of a purple rectangle.
+- A new pink (color 6) cell replaces a purple cell on the bottom left corner of the rectangle.
+- A new yellow (color 4) cell replaces a purple cell on the bottom right corner of the rectangle.
+
+The grid is otherwise unchanged.
+
+The input for example 1:
+
+- It has a purple rectangle in the middle.
+- It has a brown cell directly above the purple rectangle.
+- It has a pink cell directly to the left of the purple rectangle.
+- It has a yellow cell directly below the purple rectangle.
+- The brown cell is directly above the new brown cell (in the same column).
+- The pink cell is directly to the left of the new pink cell (in the same row).
+- The yellow cell is directly below the new yellow cell (in the same column).
+
+In example 2:
+
+- A new orange (color 7) cell replaces a purple (color 8) cell on the top of the purple rectangle.
+- A new pink cell replaces a purple cell on the top left corner of the rectangle.
+- A new red (color 2) cell replaces a purple cell on the middle right side of the rectangle.
+- A new green (color 3) cell replaces a purple cell on the bottom left corner of the rectangle.
+- A new blue (color 1) cell replaces a purple cell on the bottom right corner of the rectangle.
+
+The input for example 2:
+
+- It has a purple rectangle in the middle.
+- It has an orange cell directly above the new orange cell (in the same column).
+- It has a pink cell directly to the left of the new pink cell (in the same row).
+- It has a red cell directly to the right of the new red cell (in the same row).
+- It has a green cell directly to the left of the new green cell (in the same row).
+- It has a blue cell directly below the new blue cell (in the same column).
+
+In example 3:
+
+- A new yellow cell replaces a purple cell on the top left corner of the purple rectangle.
+- A new pink cell replaces a purple cell on the top right corner of the rectangle.
+- A new red cell replaces a purple cell on the left side of the rectangle.
+- A new orange cell replaces a purple cell on the bottom left corner of the rectangle.
+- A new red cell replaces a purple cell on the bottom right corner of the rectangle. This is a different change than the prior red cell.
+- A new green cell replaces a purple cell on the left side of the rectangle.
+
+The input for example 3:
+
+- It has a purple pixel in the middle.
+- It has a yellow/pink/red/orange/red/green cell in the same column/row as the new cell with the matching color.
+
+The input for the additional example:
+
+- It has a purple rectangle in the middle.
+- It has various colored pixels around the purple rectangle.
+
+Given these observations, we can infer the transformation rule:
+
+1. Identify a central shape (namely the purple rectangle).
+2. Look for colored cells which aren't part of the central shape.
+3. For each colored cell found around the central shape, replace a single cell on the edge of the central shape.
+4. If the colored cell is above/below the central shape, replace the top/bottom (respectively) cell in the same column on the central shape with the colored cell.
+5. If the colored cell is to the left/right of the central shape, replace the left/right cell in the same row on the central shape with the colored cell.
+
+Now let's implement this in the code.
+</reasoning>
+
+```python
+import numpy as np
+
+def transform(grid_lst: list[list[int]]) -> list[list[int]]:
+    grid = np.array(grid_lst)
+    purple_color = 8
+
+    # Find the bounding box of the purple rectangle
+    purple_shape = np.argwhere(grid == purple_color)
+    min_row, min_col = np.min(purple_shape, axis=0)
+    max_row, max_col = np.max(purple_shape, axis=0)
+
+    # Iterate over the grid to find colored cells around the purple rectangle
+    rows, cols = grid.shape
+    for row in range(rows):
+        for col in range(cols):
+            color = grid[row, col]
+            if color != 0 and color != purple_color:
+                # If the colored cell is above/below the central shape
+                if col >= min_col and col <= max_col:
+                    if row < min_row:
+                        grid[min_row, col] = color
+                    elif row > max_row:
+                        grid[max_row, col] = color
+                # If the colored cell is to the left/right of the central shape
+                if row >= min_row and row <= max_row:
+                    if col < min_col:
+                        grid[row, min_col] = color
+                    elif col > max_col:
+                        grid[row, max_col] = color
+
+    return grid.tolist()```
+
+[USER]
+Great work! Now I will give you another puzzle to solve just like that one.
+
+[ASSISTANT]
+Great, please give me the next puzzle.
+
+[USER]
+# Example 1
+
+## Input 1
+
+
+Shape: 23 by 23
+
+
+ASCII representation:
+
+4|4|4|4|4|4|4|4|0|0|1|4|1|0|1|4|0|1|0|4|0|0|0
+4|8|8|0|0|8|8|4|0|0|1|4|0|1|0|4|0|0|0|4|0|1|0
+4|8|8|0|0|8|8|4|0|1|1|4|0|0|0|4|0|0|0|4|0|0|0
+4|0|0|8|8|0|0|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|0|0|8|8|0|0|4|1|1|1|4|0|1|0|4|0|0|0|4|0|0|0
+4|0|0|0|0|0|0|4|0|1|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|0|0|0|0|0|0|4|0|1|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|1|0|0|4|0|0|0|4|0|0|0|4|0|0|0|4|0|1|0
+0|1|1|4|0|0|0|4|1|0|0|4|0|0|0|4|0|1|1|4|0|0|0
+0|0|0|4|0|0|0|4|1|0|0|4|0|0|1|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|0|0|4|0|0|0|4|1|1|0|4|0|1|1|4|0|1|0
+0|0|0|4|0|1|1|4|0|1|1|4|1|0|0|4|1|0|0|4|0|1|0
+0|0|0|4|0|1|1|4|0|1|0|4|1|0|0|4|1|0|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|0|4|0|0|0|4|0|0|0|4|1|0|0|4|0|0|1
+0|1|0|4|1|0|1|4|0|1|0|4|0|1|0|4|0|0|1|4|1|0|0
+1|0|0|4|1|0|0|4|0|1|0|4|0|0|0|4|0|0|0|4|1|0|1
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|0|4|1|0|0|4|1|0|0|4|0|0|1|4|1|1|0
+1|1|0|4|1|0|1|4|0|0|1|4|0|1|0|4|1|1|0|4|1|0|1
+1|0|0|4|1|1|1|4|0|1|0|4|0|1|1|4|1|1|1|4|0|0|0
+
+
+[[4, 4, 4, 4, 4, 4, 4, 4, 0, 0, 1, 4, 1, 0, 1, 4, 0, 1, 0, 4, 0, 0, 0],[4, 8, 8, 0, 0, 8, 8, 4, 0, 0, 1, 4, 0, 1, 0, 4, 0, 0, 0, 4, 0, 1, 0],[4, 8, 8, 0, 0, 8, 8, 4, 0, 1, 1, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0],[4, 0, 0, 8, 8, 0, 0, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[4, 0, 0, 8, 8, 0, 0, 4, 1, 1, 1, 4, 0, 1, 0, 4, 0, 0, 0, 4, 0, 0, 0],[4, 0, 0, 0, 0, 0, 0, 4, 0, 1, 1, 4, 0, 1, 0, 4, 0, 1, 0, 4, 0, 0, 0],[4, 0, 0, 0, 0, 0, 0, 4, 0, 1, 1, 4, 0, 1, 0, 4, 0, 1, 0, 4, 0, 0, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[0, 0, 0, 4, 1, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 1, 0],[0, 1, 1, 4, 0, 0, 0, 4, 1, 0, 0, 4, 0, 0, 0, 4, 0, 1, 1, 4, 0, 0, 0],[0, 0, 0, 4, 0, 0, 0, 4, 1, 0, 0, 4, 0, 0, 1, 4, 0, 0, 0, 4, 0, 1, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[1, 0, 0, 4, 1, 0, 0, 4, 0, 0, 0, 4, 1, 1, 0, 4, 0, 1, 1, 4, 0, 1, 0],[0, 0, 0, 4, 0, 1, 1, 4, 0, 1, 1, 4, 1, 0, 0, 4, 1, 0, 0, 4, 0, 1, 0],[0, 0, 0, 4, 0, 1, 1, 4, 0, 1, 0, 4, 1, 0, 0, 4, 1, 0, 0, 4, 0, 0, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[1, 0, 0, 4, 1, 1, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 1, 0, 0, 4, 0, 0, 1],[0, 1, 0, 4, 1, 0, 1, 4, 0, 1, 0, 4, 0, 1, 0, 4, 0, 0, 1, 4, 1, 0, 0],[1, 0, 0, 4, 1, 0, 0, 4, 0, 1, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 1, 0, 1],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[1, 0, 0, 4, 1, 1, 0, 4, 1, 0, 0, 4, 1, 0, 0, 4, 0, 0, 1, 4, 1, 1, 0],[1, 1, 0, 4, 1, 0, 1, 4, 0, 0, 1, 4, 0, 1, 0, 4, 1, 1, 0, 4, 1, 0, 1],[1, 0, 0, 4, 1, 1, 1, 4, 0, 1, 0, 4, 0, 1, 1, 4, 1, 1, 1, 4, 0, 0, 0]]
+## Output 1
+
+
+Shape: 23 by 23
+
+
+ASCII representation:
+
+4|4|4|4|4|4|4|4|0|0|1|4|8|0|8|4|0|1|0|4|0|0|0
+4|8|8|0|0|8|8|4|0|0|1|4|0|8|0|4|0|0|0|4|0|1|0
+4|8|8|0|0|8|8|4|0|1|1|4|0|0|0|4|0|0|0|4|0|0|0
+4|0|0|8|8|0|0|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|0|0|8|8|0|0|4|8|1|8|4|0|1|0|4|0|0|0|4|0|0|0
+4|0|0|0|0|0|0|4|0|8|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|0|0|0|0|0|0|4|0|1|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|1|0|0|4|0|0|0|4|0|0|0|4|0|0|0|4|0|1|0
+0|1|1|4|0|0|0|4|1|0|0|4|0|0|0|4|0|1|1|4|0|0|0
+0|0|0|4|0|0|0|4|1|0|0|4|0|0|1|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|0|0|4|0|0|0|4|1|1|0|4|0|1|1|4|0|1|0
+0|0|0|4|0|1|1|4|0|1|1|4|1|0|0|4|1|0|0|4|0|1|0
+0|0|0|4|0|1|1|4|0|1|0|4|1|0|0|4|1|0|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|0|4|0|0|0|4|0|0|0|4|1|0|0|4|0|0|1
+0|1|0|4|1|0|1|4|0|1|0|4|0|1|0|4|0|0|1|4|1|0|0
+1|0|0|4|1|0|0|4|0|1|0|4|0|0|0|4|0|0|0|4|1|0|1
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|0|4|1|0|0|4|1|0|0|4|0|0|1|4|1|1|0
+1|1|0|4|1|0|1|4|0|0|1|4|0|1|0|4|1|1|0|4|1|0|1
+1|0|0|4|1|1|1|4|0|1|0|4|0|1|1|4|1|1|1|4|0|0|0
+
+
+[[4, 4, 4, 4, 4, 4, 4, 4, 0, 0, 1, 4, 8, 0, 8, 4, 0, 1, 0, 4, 0, 0, 0],[4, 8, 8, 0, 0, 8, 8, 4, 0, 0, 1, 4, 0, 8, 0, 4, 0, 0, 0, 4, 0, 1, 0],[4, 8, 8, 0, 0, 8, 8, 4, 0, 1, 1, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0],[4, 0, 0, 8, 8, 0, 0, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[4, 0, 0, 8, 8, 0, 0, 4, 8, 1, 8, 4, 0, 1, 0, 4, 0, 0, 0, 4, 0, 0, 0],[4, 0, 0, 0, 0, 0, 0, 4, 0, 8, 1, 4, 0, 1, 0, 4, 0, 1, 0, 4, 0, 0, 0],[4, 0, 0, 0, 0, 0, 0, 4, 0, 1, 1, 4, 0, 1, 0, 4, 0, 1, 0, 4, 0, 0, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[0, 0, 0, 4, 1, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 1, 0],[0, 1, 1, 4, 0, 0, 0, 4, 1, 0, 0, 4, 0, 0, 0, 4, 0, 1, 1, 4, 0, 0, 0],[0, 0, 0, 4, 0, 0, 0, 4, 1, 0, 0, 4, 0, 0, 1, 4, 0, 0, 0, 4, 0, 1, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[1, 0, 0, 4, 1, 0, 0, 4, 0, 0, 0, 4, 1, 1, 0, 4, 0, 1, 1, 4, 0, 1, 0],[0, 0, 0, 4, 0, 1, 1, 4, 0, 1, 1, 4, 1, 0, 0, 4, 1, 0, 0, 4, 0, 1, 0],[0, 0, 0, 4, 0, 1, 1, 4, 0, 1, 0, 4, 1, 0, 0, 4, 1, 0, 0, 4, 0, 0, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[1, 0, 0, 4, 1, 1, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 1, 0, 0, 4, 0, 0, 1],[0, 1, 0, 4, 1, 0, 1, 4, 0, 1, 0, 4, 0, 1, 0, 4, 0, 0, 1, 4, 1, 0, 0],[1, 0, 0, 4, 1, 0, 0, 4, 0, 1, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 1, 0, 1],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[1, 0, 0, 4, 1, 1, 0, 4, 1, 0, 0, 4, 1, 0, 0, 4, 0, 0, 1, 4, 1, 1, 0],[1, 1, 0, 4, 1, 0, 1, 4, 0, 0, 1, 4, 0, 1, 0, 4, 1, 1, 0, 4, 1, 0, 1],[1, 0, 0, 4, 1, 1, 1, 4, 0, 1, 0, 4, 0, 1, 1, 4, 1, 1, 1, 4, 0, 0, 0]]
+## Color changes between the Input and Output ASCII representation:
+
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 8|  --  |1 -> 8|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 8|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 8|  --  |1 -> 8|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 8|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+
+# Example 2
+
+## Input 2
+
+
+Shape: 23 by 23
+
+
+ASCII representation:
+
+0|0|1|4|1|0|0|4|0|0|0|4|0|0|1|4|0|0|1|4|0|1|0
+1|1|0|4|0|1|0|4|1|0|1|4|1|1|1|4|1|1|0|4|0|0|1
+1|1|1|4|0|0|1|4|1|0|1|4|0|0|1|4|0|0|1|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|0|4|1|0|0|4|1|0|0|4|1|1|0|4|0|0|1|4|1|0|0
+0|0|0|4|0|0|1|4|0|1|0|4|1|0|0|4|0|0|0|4|0|0|1
+0|1|0|4|0|0|1|4|1|0|1|4|0|1|0|4|1|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|0|4|0|1|0|4|1|1|1|4|0|0|0|4|0|1|0|4|0|1|1
+0|0|0|4|0|1|0|4|0|0|0|4|1|0|1|4|0|0|1|4|0|0|1
+0|1|1|4|0|1|0|4|1|0|0|4|0|0|0|4|0|0|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|1|4|1|1|0|4|1|0|0|4|0|0|1|4|0|0|1|4|0|0|1
+1|1|1|4|1|0|1|4|0|0|1|4|0|0|0|4|1|1|0|4|1|0|0
+1|1|0|4|1|1|0|4|1|1|0|4|0|0|1|4|0|1|1|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|0|1|0|4|1|0|1|4|1|0|1|4|0|0|0|0|6|6|4
+1|1|0|4|0|1|1|4|0|0|0|4|1|0|0|4|0|0|0|0|6|6|4
+0|0|0|4|0|0|1|4|0|0|0|4|0|1|1|4|6|6|6|6|0|0|4
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|6|6|6|6|0|0|4
+0|0|1|4|1|0|0|4|0|1|0|4|1|1|0|4|0|0|6|6|0|0|4
+1|1|1|4|0|0|0|4|1|1|1|4|0|0|1|4|0|0|6|6|0|0|4
+0|0|0|4|1|0|1|4|1|1|1|4|0|0|0|4|4|4|4|4|4|4|4
+
+
+[[0, 0, 1, 4, 1, 0, 0, 4, 0, 0, 0, 4, 0, 0, 1, 4, 0, 0, 1, 4, 0, 1, 0],[1, 1, 0, 4, 0, 1, 0, 4, 1, 0, 1, 4, 1, 1, 1, 4, 1, 1, 0, 4, 0, 0, 1],[1, 1, 1, 4, 0, 0, 1, 4, 1, 0, 1, 4, 0, 0, 1, 4, 0, 0, 1, 4, 1, 0, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[0, 1, 0, 4, 1, 0, 0, 4, 1, 0, 0, 4, 1, 1, 0, 4, 0, 0, 1, 4, 1, 0, 0],[0, 0, 0, 4, 0, 0, 1, 4, 0, 1, 0, 4, 1, 0, 0, 4, 0, 0, 0, 4, 0, 0, 1],[0, 1, 0, 4, 0, 0, 1, 4, 1, 0, 1, 4, 0, 1, 0, 4, 1, 0, 0, 4, 0, 1, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[1, 1, 0, 4, 0, 1, 0, 4, 1, 1, 1, 4, 0, 0, 0, 4, 0, 1, 0, 4, 0, 1, 1],[0, 0, 0, 4, 0, 1, 0, 4, 0, 0, 0, 4, 1, 0, 1, 4, 0, 0, 1, 4, 0, 0, 1],[0, 1, 1, 4, 0, 1, 0, 4, 1, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[1, 1, 1, 4, 1, 1, 0, 4, 1, 0, 0, 4, 0, 0, 1, 4, 0, 0, 1, 4, 0, 0, 1],[1, 1, 1, 4, 1, 0, 1, 4, 0, 0, 1, 4, 0, 0, 0, 4, 1, 1, 0, 4, 1, 0, 0],[1, 1, 0, 4, 1, 1, 0, 4, 1, 1, 0, 4, 0, 0, 1, 4, 0, 1, 1, 4, 1, 0, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[0, 0, 0, 4, 0, 1, 0, 4, 1, 0, 1, 4, 1, 0, 1, 4, 0, 0, 0, 0, 6, 6, 4],[1, 1, 0, 4, 0, 1, 1, 4, 0, 0, 0, 4, 1, 0, 0, 4, 0, 0, 0, 0, 6, 6, 4],[0, 0, 0, 4, 0, 0, 1, 4, 0, 0, 0, 4, 0, 1, 1, 4, 6, 6, 6, 6, 0, 0, 4],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 6, 6, 6, 6, 0, 0, 4],[0, 0, 1, 4, 1, 0, 0, 4, 0, 1, 0, 4, 1, 1, 0, 4, 0, 0, 6, 6, 0, 0, 4],[1, 1, 1, 4, 0, 0, 0, 4, 1, 1, 1, 4, 0, 0, 1, 4, 0, 0, 6, 6, 0, 0, 4],[0, 0, 0, 4, 1, 0, 1, 4, 1, 1, 1, 4, 0, 0, 0, 4, 4, 4, 4, 4, 4, 4, 4]]
+## Output 2
+
+
+Shape: 23 by 23
+
+
+ASCII representation:
+
+0|0|6|4|1|0|0|4|0|0|0|4|0|0|1|4|0|0|1|4|0|1|0
+6|6|0|4|0|1|0|4|1|0|1|4|1|1|1|4|1|1|0|4|0|0|1
+1|6|1|4|0|0|1|4|1|0|1|4|0|0|1|4|0|0|1|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|0|4|1|0|0|4|1|0|0|4|1|1|0|4|0|0|1|4|1|0|0
+0|0|0|4|0|0|1|4|0|1|0|4|1|0|0|4|0|0|0|4|0|0|1
+0|1|0|4|0|0|1|4|1|0|1|4|0|1|0|4|1|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|0|4|0|1|0|4|1|1|1|4|0|0|0|4|0|1|0|4|0|1|1
+0|0|0|4|0|1|0|4|0|0|0|4|1|0|1|4|0|0|1|4|0|0|1
+0|1|1|4|0|1|0|4|1|0|0|4|0|0|0|4|0|0|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|6|4|1|1|0|4|1|0|0|4|0|0|1|4|0|0|6|4|0|0|1
+6|6|1|4|1|0|1|4|0|0|1|4|0|0|0|4|6|6|0|4|1|0|0
+1|6|0|4|1|1|0|4|1|1|0|4|0|0|1|4|0|6|1|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|0|1|0|4|1|0|1|4|1|0|1|4|0|0|0|0|6|6|4
+1|1|0|4|0|1|1|4|0|0|0|4|1|0|0|4|0|0|0|0|6|6|4
+0|0|0|4|0|0|1|4|0|0|0|4|0|1|1|4|6|6|6|6|0|0|4
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|6|6|6|6|0|0|4
+0|0|1|4|1|0|0|4|0|1|0|4|1|1|0|4|0|0|6|6|0|0|4
+1|1|1|4|0|0|0|4|1|1|1|4|0|0|1|4|0|0|6|6|0|0|4
+0|0|0|4|1|0|1|4|1|1|1|4|0|0|0|4|4|4|4|4|4|4|4
+
+
+[[0, 0, 6, 4, 1, 0, 0, 4, 0, 0, 0, 4, 0, 0, 1, 4, 0, 0, 1, 4, 0, 1, 0],[6, 6, 0, 4, 0, 1, 0, 4, 1, 0, 1, 4, 1, 1, 1, 4, 1, 1, 0, 4, 0, 0, 1],[1, 6, 1, 4, 0, 0, 1, 4, 1, 0, 1, 4, 0, 0, 1, 4, 0, 0, 1, 4, 1, 0, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[0, 1, 0, 4, 1, 0, 0, 4, 1, 0, 0, 4, 1, 1, 0, 4, 0, 0, 1, 4, 1, 0, 0],[0, 0, 0, 4, 0, 0, 1, 4, 0, 1, 0, 4, 1, 0, 0, 4, 0, 0, 0, 4, 0, 0, 1],[0, 1, 0, 4, 0, 0, 1, 4, 1, 0, 1, 4, 0, 1, 0, 4, 1, 0, 0, 4, 0, 1, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[1, 1, 0, 4, 0, 1, 0, 4, 1, 1, 1, 4, 0, 0, 0, 4, 0, 1, 0, 4, 0, 1, 1],[0, 0, 0, 4, 0, 1, 0, 4, 0, 0, 0, 4, 1, 0, 1, 4, 0, 0, 1, 4, 0, 0, 1],[0, 1, 1, 4, 0, 1, 0, 4, 1, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[1, 1, 6, 4, 1, 1, 0, 4, 1, 0, 0, 4, 0, 0, 1, 4, 0, 0, 6, 4, 0, 0, 1],[6, 6, 1, 4, 1, 0, 1, 4, 0, 0, 1, 4, 0, 0, 0, 4, 6, 6, 0, 4, 1, 0, 0],[1, 6, 0, 4, 1, 1, 0, 4, 1, 1, 0, 4, 0, 0, 1, 4, 0, 6, 1, 4, 1, 0, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[0, 0, 0, 4, 0, 1, 0, 4, 1, 0, 1, 4, 1, 0, 1, 4, 0, 0, 0, 0, 6, 6, 4],[1, 1, 0, 4, 0, 1, 1, 4, 0, 0, 0, 4, 1, 0, 0, 4, 0, 0, 0, 0, 6, 6, 4],[0, 0, 0, 4, 0, 0, 1, 4, 0, 0, 0, 4, 0, 1, 1, 4, 6, 6, 6, 6, 0, 0, 4],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 6, 6, 6, 6, 0, 0, 4],[0, 0, 1, 4, 1, 0, 0, 4, 0, 1, 0, 4, 1, 1, 0, 4, 0, 0, 6, 6, 0, 0, 4],[1, 1, 1, 4, 0, 0, 0, 4, 1, 1, 1, 4, 0, 0, 1, 4, 0, 0, 6, 6, 0, 0, 4],[0, 0, 0, 4, 1, 0, 1, 4, 1, 1, 1, 4, 0, 0, 0, 4, 4, 4, 4, 4, 4, 4, 4]]
+## Color changes between the Input and Output ASCII representation:
+
+  --  |  --  |1 -> 6|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+1 -> 6|1 -> 6|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |1 -> 6|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |1 -> 6|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 6|  --  |  --  |  --  |  --  
+1 -> 6|1 -> 6|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 6|1 -> 6|  --  |  --  |  --  |  --  |  --  
+  --  |1 -> 6|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 6|  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+
+# Example 3
+
+## Input 3
+
+
+Shape: 23 by 23
+
+
+ASCII representation:
+
+1|0|0|4|0|0|1|4|1|1|1|4|1|1|0|4|1|0|0|4|0|0|0
+1|1|0|4|1|0|0|4|1|0|0|4|0|1|0|4|1|1|0|4|0|1|1
+0|1|1|4|1|0|0|4|1|0|1|4|0|1|0|4|0|0|0|4|1|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|1|4|0|0|1|4|1|0|0|4|1|0|0|4|1|0|0
+1|0|0|4|1|1|0|4|0|1|0|4|1|1|0|4|1|0|1|4|0|1|0
+1|1|0|4|0|1|1|4|1|0|0|4|0|0|1|4|1|0|1|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|1|4|1|1|0|4|1|1|0|4|0|1|0|4|1|1|0|4|0|1|0
+1|1|0|4|0|0|1|4|0|0|1|4|1|0|1|4|0|1|1|4|0|1|0
+0|1|1|4|1|1|0|4|0|1|0|4|0|1|0|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|1|4|1|0|1|4|0|0|0|4|0|0|0|4|1|0|0|4|1|0|0
+1|0|1|4|1|0|1|4|0|1|1|4|0|0|1|4|1|0|0|4|1|0|0
+0|1|1|4|0|1|0|4|1|1|0|4|0|0|1|4|1|1|1|4|1|0|1
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|3|3|0|0|0|0|4|1|1|1|4|1|0|1|4|0|0|1|4|0|1|1
+4|3|3|0|0|0|0|4|1|1|1|4|0|1|1|4|1|1|0|4|1|0|0
+4|0|0|3|3|0|0|4|0|1|0|4|0|0|1|4|1|1|1|4|0|0|0
+4|0|0|3|3|0|0|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|0|0|0|0|3|3|4|0|1|1|4|0|0|0|4|0|1|0|4|0|1|0
+4|0|0|0|0|3|3|4|1|0|1|4|0|0|0|4|1|0|1|4|1|1|1
+4|4|4|4|4|4|4|4|1|1|0|4|1|0|0|4|0|1|0|4|1|1|0
+
+
+[[1, 0, 0, 4, 0, 0, 1, 4, 1, 1, 1, 4, 1, 1, 0, 4, 1, 0, 0, 4, 0, 0, 0],[1, 1, 0, 4, 1, 0, 0, 4, 1, 0, 0, 4, 0, 1, 0, 4, 1, 1, 0, 4, 0, 1, 1],[0, 1, 1, 4, 1, 0, 0, 4, 1, 0, 1, 4, 0, 1, 0, 4, 0, 0, 0, 4, 1, 1, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[1, 0, 0, 4, 1, 1, 1, 4, 0, 0, 1, 4, 1, 0, 0, 4, 1, 0, 0, 4, 1, 0, 0],[1, 0, 0, 4, 1, 1, 0, 4, 0, 1, 0, 4, 1, 1, 0, 4, 1, 0, 1, 4, 0, 1, 0],[1, 1, 0, 4, 0, 1, 1, 4, 1, 0, 0, 4, 0, 0, 1, 4, 1, 0, 1, 4, 0, 1, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[0, 1, 1, 4, 1, 1, 0, 4, 1, 1, 0, 4, 0, 1, 0, 4, 1, 1, 0, 4, 0, 1, 0],[1, 1, 0, 4, 0, 0, 1, 4, 0, 0, 1, 4, 1, 0, 1, 4, 0, 1, 1, 4, 0, 1, 0],[0, 1, 1, 4, 1, 1, 0, 4, 0, 1, 0, 4, 0, 1, 0, 4, 0, 0, 0, 4, 0, 1, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[1, 1, 1, 4, 1, 0, 1, 4, 0, 0, 0, 4, 0, 0, 0, 4, 1, 0, 0, 4, 1, 0, 0],[1, 0, 1, 4, 1, 0, 1, 4, 0, 1, 1, 4, 0, 0, 1, 4, 1, 0, 0, 4, 1, 0, 0],[0, 1, 1, 4, 0, 1, 0, 4, 1, 1, 0, 4, 0, 0, 1, 4, 1, 1, 1, 4, 1, 0, 1],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[4, 3, 3, 0, 0, 0, 0, 4, 1, 1, 1, 4, 1, 0, 1, 4, 0, 0, 1, 4, 0, 1, 1],[4, 3, 3, 0, 0, 0, 0, 4, 1, 1, 1, 4, 0, 1, 1, 4, 1, 1, 0, 4, 1, 0, 0],[4, 0, 0, 3, 3, 0, 0, 4, 0, 1, 0, 4, 0, 0, 1, 4, 1, 1, 1, 4, 0, 0, 0],[4, 0, 0, 3, 3, 0, 0, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[4, 0, 0, 0, 0, 3, 3, 4, 0, 1, 1, 4, 0, 0, 0, 4, 0, 1, 0, 4, 0, 1, 0],[4, 0, 0, 0, 0, 3, 3, 4, 1, 0, 1, 4, 0, 0, 0, 4, 1, 0, 1, 4, 1, 1, 1],[4, 4, 4, 4, 4, 4, 4, 4, 1, 1, 0, 4, 1, 0, 0, 4, 0, 1, 0, 4, 1, 1, 0]]
+## Output 3
+
+
+Shape: 23 by 23
+
+
+ASCII representation:
+
+3|0|0|4|0|0|1|4|1|1|1|4|1|1|0|4|1|0|0|4|0|0|0
+1|3|0|4|1|0|0|4|1|0|0|4|0|1|0|4|1|1|0|4|0|1|1
+0|1|3|4|1|0|0|4|1|0|1|4|0|1|0|4|0|0|0|4|1|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|3|1|1|4|0|0|1|4|3|0|0|4|1|0|0|4|1|0|0
+1|0|0|4|1|3|0|4|0|1|0|4|1|3|0|4|1|0|1|4|0|1|0
+1|1|0|4|0|1|3|4|1|0|0|4|0|0|3|4|1|0|1|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|1|4|1|1|0|4|1|1|0|4|0|1|0|4|1|1|0|4|0|1|0
+1|1|0|4|0|0|1|4|0|0|1|4|1|0|1|4|0|1|1|4|0|1|0
+0|1|1|4|1|1|0|4|0|1|0|4|0|1|0|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|1|4|1|0|1|4|0|0|0|4|0|0|0|4|1|0|0|4|1|0|0
+1|0|1|4|1|0|1|4|0|1|1|4|0|0|1|4|1|0|0|4|1|0|0
+0|1|1|4|0|1|0|4|1|1|0|4|0|0|1|4|1|1|1|4|1|0|1
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|3|3|0|0|0|0|4|1|1|1|4|3|0|1|4|0|0|1|4|0|1|1
+4|3|3|0|0|0|0|4|1|1|1|4|0|3|1|4|1|1|0|4|1|0|0
+4|0|0|3|3|0|0|4|0|1|0|4|0|0|3|4|1|1|1|4|0|0|0
+4|0|0|3|3|0|0|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|0|0|0|0|3|3|4|0|1|1|4|0|0|0|4|0|1|0|4|0|1|0
+4|0|0|0|0|3|3|4|1|0|1|4|0|0|0|4|1|0|1|4|1|1|1
+4|4|4|4|4|4|4|4|1|1|0|4|1|0|0|4|0|1|0|4|1|1|0
+
+
+[[3, 0, 0, 4, 0, 0, 1, 4, 1, 1, 1, 4, 1, 1, 0, 4, 1, 0, 0, 4, 0, 0, 0],[1, 3, 0, 4, 1, 0, 0, 4, 1, 0, 0, 4, 0, 1, 0, 4, 1, 1, 0, 4, 0, 1, 1],[0, 1, 3, 4, 1, 0, 0, 4, 1, 0, 1, 4, 0, 1, 0, 4, 0, 0, 0, 4, 1, 1, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[1, 0, 0, 4, 3, 1, 1, 4, 0, 0, 1, 4, 3, 0, 0, 4, 1, 0, 0, 4, 1, 0, 0],[1, 0, 0, 4, 1, 3, 0, 4, 0, 1, 0, 4, 1, 3, 0, 4, 1, 0, 1, 4, 0, 1, 0],[1, 1, 0, 4, 0, 1, 3, 4, 1, 0, 0, 4, 0, 0, 3, 4, 1, 0, 1, 4, 0, 1, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[0, 1, 1, 4, 1, 1, 0, 4, 1, 1, 0, 4, 0, 1, 0, 4, 1, 1, 0, 4, 0, 1, 0],[1, 1, 0, 4, 0, 0, 1, 4, 0, 0, 1, 4, 1, 0, 1, 4, 0, 1, 1, 4, 0, 1, 0],[0, 1, 1, 4, 1, 1, 0, 4, 0, 1, 0, 4, 0, 1, 0, 4, 0, 0, 0, 4, 0, 1, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[1, 1, 1, 4, 1, 0, 1, 4, 0, 0, 0, 4, 0, 0, 0, 4, 1, 0, 0, 4, 1, 0, 0],[1, 0, 1, 4, 1, 0, 1, 4, 0, 1, 1, 4, 0, 0, 1, 4, 1, 0, 0, 4, 1, 0, 0],[0, 1, 1, 4, 0, 1, 0, 4, 1, 1, 0, 4, 0, 0, 1, 4, 1, 1, 1, 4, 1, 0, 1],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[4, 3, 3, 0, 0, 0, 0, 4, 1, 1, 1, 4, 3, 0, 1, 4, 0, 0, 1, 4, 0, 1, 1],[4, 3, 3, 0, 0, 0, 0, 4, 1, 1, 1, 4, 0, 3, 1, 4, 1, 1, 0, 4, 1, 0, 0],[4, 0, 0, 3, 3, 0, 0, 4, 0, 1, 0, 4, 0, 0, 3, 4, 1, 1, 1, 4, 0, 0, 0],[4, 0, 0, 3, 3, 0, 0, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[4, 0, 0, 0, 0, 3, 3, 4, 0, 1, 1, 4, 0, 0, 0, 4, 0, 1, 0, 4, 0, 1, 0],[4, 0, 0, 0, 0, 3, 3, 4, 1, 0, 1, 4, 0, 0, 0, 4, 1, 0, 1, 4, 1, 1, 1],[4, 4, 4, 4, 4, 4, 4, 4, 1, 1, 0, 4, 1, 0, 0, 4, 0, 1, 0, 4, 1, 1, 0]]
+## Color changes between the Input and Output ASCII representation:
+
+1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+
+# Additional input
+
+
+Shape: 23 by 23
+
+
+ASCII representation:
+
+1|0|1|4|1|0|0|4|0|1|1|4|0|1|0|4|4|4|4|4|4|4|4
+1|0|0|4|0|0|0|4|0|0|1|4|1|1|1|4|0|0|0|0|7|7|4
+0|1|0|4|0|0|0|4|0|0|0|4|1|1|0|4|0|0|0|0|7|7|4
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|7|7|7|7|7|7|4
+0|0|0|4|0|0|0|4|1|1|1|4|0|0|0|4|7|7|7|7|7|7|4
+0|1|0|4|1|0|0|4|0|1|1|4|0|1|1|4|7|7|0|0|0|0|4
+1|0|0|4|1|0|1|4|1|0|0|4|0|1|0|4|7|7|0|0|0|0|4
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|0|0|1|4|1|1|0|4|1|1|0|4|0|0|1|4|1|1|0
+1|0|0|4|1|1|1|4|0|0|0|4|1|1|0|4|1|0|1|4|1|0|0
+0|0|0|4|1|0|0|4|1|1|0|4|1|0|1|4|1|0|0|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|1|4|0|0|0|4|1|0|1|4|1|1|0|4|0|0|0|4|0|0|1
+1|0|0|4|0|0|0|4|0|0|1|4|1|1|1|4|1|1|0|4|0|0|0
+0|1|1|4|0|1|0|4|1|0|1|4|0|0|1|4|1|0|0|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|1|1|0|4|1|0|0|4|0|0|0|4|1|0|0|4|0|1|0
+0|0|1|4|0|1|0|4|1|0|0|4|1|0|0|4|1|1|0|4|1|0|0
+1|1|0|4|0|0|0|4|1|0|0|4|1|0|1|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|1|4|0|0|1|4|1|0|1|4|0|1|0|4|1|1|0|4|0|1|0
+0|0|0|4|1|1|1|4|1|1|1|4|0|1|1|4|1|0|1|4|1|1|0
+0|0|0|4|1|0|1|4|1|1|1|4|0|0|0|4|1|0|0|4|0|1|0
+
+
+[[1, 0, 1, 4, 1, 0, 0, 4, 0, 1, 1, 4, 0, 1, 0, 4, 4, 4, 4, 4, 4, 4, 4],[1, 0, 0, 4, 0, 0, 0, 4, 0, 0, 1, 4, 1, 1, 1, 4, 0, 0, 0, 0, 7, 7, 4],[0, 1, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 1, 1, 0, 4, 0, 0, 0, 0, 7, 7, 4],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 7, 7, 7, 7, 7, 7, 4],[0, 0, 0, 4, 0, 0, 0, 4, 1, 1, 1, 4, 0, 0, 0, 4, 7, 7, 7, 7, 7, 7, 4],[0, 1, 0, 4, 1, 0, 0, 4, 0, 1, 1, 4, 0, 1, 1, 4, 7, 7, 0, 0, 0, 0, 4],[1, 0, 0, 4, 1, 0, 1, 4, 1, 0, 0, 4, 0, 1, 0, 4, 7, 7, 0, 0, 0, 0, 4],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[1, 0, 0, 4, 0, 0, 1, 4, 1, 1, 0, 4, 1, 1, 0, 4, 0, 0, 1, 4, 1, 1, 0],[1, 0, 0, 4, 1, 1, 1, 4, 0, 0, 0, 4, 1, 1, 0, 4, 1, 0, 1, 4, 1, 0, 0],[0, 0, 0, 4, 1, 0, 0, 4, 1, 1, 0, 4, 1, 0, 1, 4, 1, 0, 0, 4, 1, 0, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[1, 0, 1, 4, 0, 0, 0, 4, 1, 0, 1, 4, 1, 1, 0, 4, 0, 0, 0, 4, 0, 0, 1],[1, 0, 0, 4, 0, 0, 0, 4, 0, 0, 1, 4, 1, 1, 1, 4, 1, 1, 0, 4, 0, 0, 0],[0, 1, 1, 4, 0, 1, 0, 4, 1, 0, 1, 4, 0, 0, 1, 4, 1, 0, 0, 4, 1, 0, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[0, 0, 0, 4, 1, 1, 0, 4, 1, 0, 0, 4, 0, 0, 0, 4, 1, 0, 0, 4, 0, 1, 0],[0, 0, 1, 4, 0, 1, 0, 4, 1, 0, 0, 4, 1, 0, 0, 4, 1, 1, 0, 4, 1, 0, 0],[1, 1, 0, 4, 0, 0, 0, 4, 1, 0, 0, 4, 1, 0, 1, 4, 0, 0, 0, 4, 0, 1, 0],[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],[0, 1, 1, 4, 0, 0, 1, 4, 1, 0, 1, 4, 0, 1, 0, 4, 1, 1, 0, 4, 0, 1, 0],[0, 0, 0, 4, 1, 1, 1, 4, 1, 1, 1, 4, 0, 1, 1, 4, 1, 0, 1, 4, 1, 1, 0],[0, 0, 0, 4, 1, 0, 1, 4, 1, 1, 1, 4, 0, 0, 0, 4, 1, 0, 0, 4, 0, 1, 0]]
+
+[USER]
+
+                    Here is a primitive that you can build upon to solve this problem. Remember, it's okay to not to use this primitive too
+                    if you think it's not helpful.
+
+                    from collections import deque
+from typing import List, Tuple
+
+def get_components(grid: List[List[int]], target: int) -> List[List[Tuple[int, int]]]:
+    if not grid or not grid[0]:
+        return []
+    rows = len(grid)
+    cols = len(grid[0])
+    visited = [[False] * cols for _ in range(rows)]
+    components = []
+    directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # 4-connected
+    for i in range(rows):
+        for j in range(cols):
+            if grid[i][j] == target and not visited[i][j]:
+                comp = []
+                q = deque([(i, j)])
+                visited[i][j] = True
+                comp.append((i, j))
+                while q:
+                    x, y = q.popleft()
+                    for dx, dy in directions:
+                        nx = x + dx
+                        ny = y + dy
+                        if 0 <= nx < rows and 0 <= ny < cols and not visited[nx][ny] and grid[nx][ny] == target:
+                            visited[nx][ny] = True
+                            q.append((nx, ny))
+                            comp.append((nx, ny))
+                components.append(comp)
+    return components
+
+def transform(grid_lst: list[list[int]]) -> list[list[int]]:
+    if not grid_lst or not grid_lst[0]:
+        return grid_lst
+    grid = [row[:] for row in grid_lst]
+    rows = len(grid)
+    cols = len(grid[0])
+    bg = grid[0][0]
+
+    # Get all components for colors 1-9
+    all_components = []
+    for color in range(1, 10):
+        comps = get_components(grid, color)
+        for comp in comps:
+            if comp:  # non-empty
+                positions = comp
+                min_r = min(r for r, c in positions)
+                max_r = max(r for r, c in positions)
+                min_c = min(c for r, c in positions)
+                max_c = max(c for r, c in positions)
+                all_components.append({
+                    'color': color,
+                    'positions': positions,
+                    'min_r': min_r,
+                    'max_r': max_r,
+                    'min_c': min_c,
+                    'max_c': max_c,
+                    'shift_left': False,
+                    'shift_right': False
+                })
+
+    # Sort by min_r
+    all_components.sort(key=lambda x: x['min_r'])
+
+    # Find pairs
+    i = 0
+    while i < len(all_components) - 1:
+        comp1 = all_components[i]
+        comp2 = all_components[i + 1]
+        if comp1['max_r'] + 1 == comp2['min_r']:
+            # Check column overlap
+            if not (comp1['max_c'] < comp2['min_c'] or comp2['max_c'] < comp1['min_c']):
+                comp1['shift_left'] = True
+                comp2['shift_right'] = True
+                i += 2
+                continue
+        i += 1
+
+    # Perform shifts
+    for comp in all_components:
+        if not (comp['shift_left'] or comp['shift_right']):
+            continue
+        color = comp['color']
+        # Group by row
+        row_cols = {}
+        for r, c in comp['positions']:
+            if r not in row_cols:
+                row_cols[r] = []
+            row_cols[r].append(c)
+        for r in row_cols:
+            # Get unique sorted cols
+            cols_in_row = sorted(set(row_cols[r]))
+            if not cols_in_row:
+                continue
+            # Find segments
+            segments = []
+            start = cols_in_row[0]
+            prev = start
+            for j in range(1, len(cols_in_row)):
+                if cols_in_row[j] == prev + 1:
+                    prev = cols_in_row[j]
+                else:
+                    segments.append((start, prev))
+                    start = cols_in_row[j]
+                    prev = start
+            segments.append((start, prev))
+            # Shift each segment
+            if comp['shift_left']:
+                for start, end in segments:
+                    if start > 0:
+                        grid[r][start - 1] = color
+                    if end < cols:
+                        grid[r][end] = bg
+            elif comp['shift_right']:
+                for start, end in segments:
+                    if start < cols:
+                        grid[r][start] = bg
+                    if end + 1 < cols:
+                        grid[r][end + 1] = color
+
+    return grid
+
+                    Here are the examples that have failed:
+                    Example 0 failed
+# Input ASCII representation:
+
+4|4|4|4|4|4|4|4|0|0|1|4|1|0|1|4|0|1|0|4|0|0|0
+4|8|8|0|0|8|8|4|0|0|1|4|0|1|0|4|0|0|0|4|0|1|0
+4|8|8|0|0|8|8|4|0|1|1|4|0|0|0|4|0|0|0|4|0|0|0
+4|0|0|8|8|0|0|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|0|0|8|8|0|0|4|1|1|1|4|0|1|0|4|0|0|0|4|0|0|0
+4|0|0|0|0|0|0|4|0|1|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|0|0|0|0|0|0|4|0|1|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|1|0|0|4|0|0|0|4|0|0|0|4|0|0|0|4|0|1|0
+0|1|1|4|0|0|0|4|1|0|0|4|0|0|0|4|0|1|1|4|0|0|0
+0|0|0|4|0|0|0|4|1|0|0|4|0|0|1|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|0|0|4|0|0|0|4|1|1|0|4|0|1|1|4|0|1|0
+0|0|0|4|0|1|1|4|0|1|1|4|1|0|0|4|1|0|0|4|0|1|0
+0|0|0|4|0|1|1|4|0|1|0|4|1|0|0|4|1|0|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|0|4|0|0|0|4|0|0|0|4|1|0|0|4|0|0|1
+0|1|0|4|1|0|1|4|0|1|0|4|0|1|0|4|0|0|1|4|1|0|0
+1|0|0|4|1|0|0|4|0|1|0|4|0|0|0|4|0|0|0|4|1|0|1
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|0|4|1|0|0|4|1|0|0|4|0|0|1|4|1|1|0
+1|1|0|4|1|0|1|4|0|0|1|4|0|1|0|4|1|1|0|4|1|0|1
+1|0|0|4|1|1|1|4|0|1|0|4|0|1|1|4|1|1|1|4|0|0|0
+
+# Incorrect Transformed Output ASCII representation:
+
+4|4|4|4|4|4|4|4|0|0|1|4|1|0|1|4|0|1|0|4|0|0|0
+4|8|8|0|0|8|8|4|0|0|1|4|0|1|0|4|0|0|0|4|0|1|0
+4|8|8|0|0|8|8|4|0|1|1|4|0|0|0|4|0|0|0|4|0|0|0
+4|0|0|8|8|0|0|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|0|0|8|8|0|0|4|1|1|1|4|0|1|0|4|0|0|0|4|0|0|0
+4|0|0|0|0|0|0|4|0|1|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|0|0|0|0|0|0|4|0|1|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|1|0|0|4|0|0|0|4|0|0|0|4|0|0|0|4|0|1|0
+0|1|1|4|0|0|0|4|1|0|0|4|0|0|0|4|0|1|1|4|0|0|0
+0|0|0|4|0|0|0|4|1|0|0|4|0|0|1|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|0|0|4|0|0|0|4|1|1|0|4|0|1|1|4|0|1|0
+0|0|0|4|0|1|1|4|0|1|1|4|1|0|0|4|1|0|0|4|0|1|0
+0|0|0|4|0|1|1|4|0|1|0|4|1|0|0|4|1|0|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|0|4|0|0|0|4|0|0|0|4|1|0|0|4|0|0|1
+0|1|0|4|1|0|1|4|0|1|0|4|0|1|0|4|0|0|1|4|1|0|0
+1|0|0|4|1|0|0|4|0|1|0|4|0|0|0|4|0|0|0|4|1|0|1
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|0|4|1|0|0|4|1|0|0|4|0|0|1|4|1|1|0
+1|1|0|4|1|0|1|4|0|0|1|4|0|1|0|4|1|1|0|4|1|0|1
+1|0|0|4|1|1|1|4|0|1|0|4|0|1|1|4|1|1|1|4|0|0|0
+
+# Expected Output ASCII representation:
+
+4|4|4|4|4|4|4|4|0|0|1|4|8|0|8|4|0|1|0|4|0|0|0
+4|8|8|0|0|8|8|4|0|0|1|4|0|8|0|4|0|0|0|4|0|1|0
+4|8|8|0|0|8|8|4|0|1|1|4|0|0|0|4|0|0|0|4|0|0|0
+4|0|0|8|8|0|0|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|0|0|8|8|0|0|4|8|1|8|4|0|1|0|4|0|0|0|4|0|0|0
+4|0|0|0|0|0|0|4|0|8|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|0|0|0|0|0|0|4|0|1|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|1|0|0|4|0|0|0|4|0|0|0|4|0|0|0|4|0|1|0
+0|1|1|4|0|0|0|4|1|0|0|4|0|0|0|4|0|1|1|4|0|0|0
+0|0|0|4|0|0|0|4|1|0|0|4|0|0|1|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|0|0|4|0|0|0|4|1|1|0|4|0|1|1|4|0|1|0
+0|0|0|4|0|1|1|4|0|1|1|4|1|0|0|4|1|0|0|4|0|1|0
+0|0|0|4|0|1|1|4|0|1|0|4|1|0|0|4|1|0|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|0|4|0|0|0|4|0|0|0|4|1|0|0|4|0|0|1
+0|1|0|4|1|0|1|4|0|1|0|4|0|1|0|4|0|0|1|4|1|0|0
+1|0|0|4|1|0|0|4|0|1|0|4|0|0|0|4|0|0|0|4|1|0|1
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|0|4|1|0|0|4|1|0|0|4|0|0|1|4|1|1|0
+1|1|0|4|1|0|1|4|0|0|1|4|0|1|0|4|1|1|0|4|1|0|1
+1|0|0|4|1|1|1|4|0|1|0|4|0|1|1|4|1|1|1|4|0|0|0
+
+# Color changes between transformed output and expected output ASCII representation:
+
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 8|  --  |1 -> 8|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 8|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 8|  --  |1 -> 8|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 8|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+Example 1 failed
+# Input ASCII representation:
+
+0|0|1|4|1|0|0|4|0|0|0|4|0|0|1|4|0|0|1|4|0|1|0
+1|1|0|4|0|1|0|4|1|0|1|4|1|1|1|4|1|1|0|4|0|0|1
+1|1|1|4|0|0|1|4|1|0|1|4|0|0|1|4|0|0|1|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|0|4|1|0|0|4|1|0|0|4|1|1|0|4|0|0|1|4|1|0|0
+0|0|0|4|0|0|1|4|0|1|0|4|1|0|0|4|0|0|0|4|0|0|1
+0|1|0|4|0|0|1|4|1|0|1|4|0|1|0|4|1|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|0|4|0|1|0|4|1|1|1|4|0|0|0|4|0|1|0|4|0|1|1
+0|0|0|4|0|1|0|4|0|0|0|4|1|0|1|4|0|0|1|4|0|0|1
+0|1|1|4|0|1|0|4|1|0|0|4|0|0|0|4|0|0|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|1|4|1|1|0|4|1|0|0|4|0|0|1|4|0|0|1|4|0|0|1
+1|1|1|4|1|0|1|4|0|0|1|4|0|0|0|4|1|1|0|4|1|0|0
+1|1|0|4|1|1|0|4|1|1|0|4|0|0|1|4|0|1|1|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|0|1|0|4|1|0|1|4|1|0|1|4|0|0|0|0|6|6|4
+1|1|0|4|0|1|1|4|0|0|0|4|1|0|0|4|0|0|0|0|6|6|4
+0|0|0|4|0|0|1|4|0|0|0|4|0|1|1|4|6|6|6|6|0|0|4
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|6|6|6|6|0|0|4
+0|0|1|4|1|0|0|4|0|1|0|4|1|1|0|4|0|0|6|6|0|0|4
+1|1|1|4|0|0|0|4|1|1|1|4|0|0|1|4|0|0|6|6|0|0|4
+0|0|0|4|1|0|1|4|1|1|1|4|0|0|0|4|4|4|4|4|4|4|4
+
+# Incorrect Transformed Output ASCII representation:
+
+0|0|1|4|1|0|0|4|0|0|0|4|0|0|1|4|0|0|1|4|0|1|0
+1|1|0|4|0|1|0|4|1|0|1|4|1|1|1|4|1|1|0|4|0|0|1
+1|1|1|4|0|0|1|4|1|0|1|4|0|0|1|4|0|0|1|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|0|4|1|0|0|4|1|0|0|4|1|1|0|4|0|0|1|4|1|0|0
+0|0|0|4|0|0|1|4|0|1|0|4|1|0|0|4|0|0|0|4|0|0|1
+0|1|0|4|0|0|1|4|1|0|1|4|0|1|0|4|1|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|0|4|0|1|0|4|1|1|1|4|0|0|0|4|0|1|0|4|0|1|1
+0|0|0|4|0|1|0|4|0|0|0|4|1|0|1|4|0|0|1|4|0|0|1
+0|1|1|4|0|1|0|4|1|0|0|4|0|0|0|4|0|0|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|1|4|1|1|0|4|1|0|0|4|0|0|1|4|0|0|1|4|0|0|1
+1|1|1|4|1|0|1|4|0|0|1|4|0|0|0|4|1|1|0|4|1|0|0
+1|1|0|4|1|1|0|4|1|1|0|4|0|0|1|4|0|1|1|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|0|1|0|4|1|0|1|4|1|0|1|4|0|0|0|0|6|6|4
+1|1|0|4|0|1|1|4|0|0|0|4|1|0|0|4|0|0|0|0|6|6|4
+0|0|0|4|0|0|1|4|0|0|0|4|0|1|1|4|6|6|6|6|0|0|4
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|6|6|6|6|0|0|4
+0|0|1|4|1|0|0|4|0|1|0|4|1|1|0|4|0|0|6|6|0|0|4
+1|1|1|4|0|0|0|4|1|1|1|4|0|0|1|4|0|0|6|6|0|0|4
+0|0|0|4|1|0|1|4|1|1|1|4|0|0|0|4|4|4|4|4|4|4|4
+
+# Expected Output ASCII representation:
+
+0|0|6|4|1|0|0|4|0|0|0|4|0|0|1|4|0|0|1|4|0|1|0
+6|6|0|4|0|1|0|4|1|0|1|4|1|1|1|4|1|1|0|4|0|0|1
+1|6|1|4|0|0|1|4|1|0|1|4|0|0|1|4|0|0|1|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|0|4|1|0|0|4|1|0|0|4|1|1|0|4|0|0|1|4|1|0|0
+0|0|0|4|0|0|1|4|0|1|0|4|1|0|0|4|0|0|0|4|0|0|1
+0|1|0|4|0|0|1|4|1|0|1|4|0|1|0|4|1|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|0|4|0|1|0|4|1|1|1|4|0|0|0|4|0|1|0|4|0|1|1
+0|0|0|4|0|1|0|4|0|0|0|4|1|0|1|4|0|0|1|4|0|0|1
+0|1|1|4|0|1|0|4|1|0|0|4|0|0|0|4|0|0|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|6|4|1|1|0|4|1|0|0|4|0|0|1|4|0|0|6|4|0|0|1
+6|6|1|4|1|0|1|4|0|0|1|4|0|0|0|4|6|6|0|4|1|0|0
+1|6|0|4|1|1|0|4|1|1|0|4|0|0|1|4|0|6|1|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|0|1|0|4|1|0|1|4|1|0|1|4|0|0|0|0|6|6|4
+1|1|0|4|0|1|1|4|0|0|0|4|1|0|0|4|0|0|0|0|6|6|4
+0|0|0|4|0|0|1|4|0|0|0|4|0|1|1|4|6|6|6|6|0|0|4
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|6|6|6|6|0|0|4
+0|0|1|4|1|0|0|4|0|1|0|4|1|1|0|4|0|0|6|6|0|0|4
+1|1|1|4|0|0|0|4|1|1|1|4|0|0|1|4|0|0|6|6|0|0|4
+0|0|0|4|1|0|1|4|1|1|1|4|0|0|0|4|4|4|4|4|4|4|4
+
+# Color changes between transformed output and expected output ASCII representation:
+
+  --  |  --  |1 -> 6|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+1 -> 6|1 -> 6|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |1 -> 6|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |1 -> 6|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 6|  --  |  --  |  --  |  --  
+1 -> 6|1 -> 6|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 6|1 -> 6|  --  |  --  |  --  |  --  |  --  
+  --  |1 -> 6|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 6|  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+Example 2 failed
+# Input ASCII representation:
+
+1|0|0|4|0|0|1|4|1|1|1|4|1|1|0|4|1|0|0|4|0|0|0
+1|1|0|4|1|0|0|4|1|0|0|4|0|1|0|4|1|1|0|4|0|1|1
+0|1|1|4|1|0|0|4|1|0|1|4|0|1|0|4|0|0|0|4|1|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|1|4|0|0|1|4|1|0|0|4|1|0|0|4|1|0|0
+1|0|0|4|1|1|0|4|0|1|0|4|1|1|0|4|1|0|1|4|0|1|0
+1|1|0|4|0|1|1|4|1|0|0|4|0|0|1|4|1|0|1|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|1|4|1|1|0|4|1|1|0|4|0|1|0|4|1|1|0|4|0|1|0
+1|1|0|4|0|0|1|4|0|0|1|4|1|0|1|4|0|1|1|4|0|1|0
+0|1|1|4|1|1|0|4|0|1|0|4|0|1|0|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|1|4|1|0|1|4|0|0|0|4|0|0|0|4|1|0|0|4|1|0|0
+1|0|1|4|1|0|1|4|0|1|1|4|0|0|1|4|1|0|0|4|1|0|0
+0|1|1|4|0|1|0|4|1|1|0|4|0|0|1|4|1|1|1|4|1|0|1
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|3|3|0|0|0|0|4|1|1|1|4|1|0|1|4|0|0|1|4|0|1|1
+4|3|3|0|0|0|0|4|1|1|1|4|0|1|1|4|1|1|0|4|1|0|0
+4|0|0|3|3|0|0|4|0|1|0|4|0|0|1|4|1|1|1|4|0|0|0
+4|0|0|3|3|0|0|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|0|0|0|0|3|3|4|0|1|1|4|0|0|0|4|0|1|0|4|0|1|0
+4|0|0|0|0|3|3|4|1|0|1|4|0|0|0|4|1|0|1|4|1|1|1
+4|4|4|4|4|4|4|4|1|1|0|4|1|0|0|4|0|1|0|4|1|1|0
+
+# Incorrect Transformed Output ASCII representation:
+
+1|0|0|4|0|0|1|4|1|1|1|4|1|1|0|4|1|0|0|4|0|0|0
+1|1|0|4|1|0|0|4|1|0|0|4|0|1|0|4|1|1|0|4|0|1|1
+0|1|1|4|1|0|0|4|1|0|1|4|0|1|0|4|0|0|0|4|1|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|1|4|0|0|1|4|1|0|0|4|1|0|0|4|1|0|0
+1|0|0|4|1|1|0|4|0|1|0|4|1|1|0|4|1|0|1|4|0|1|0
+1|1|0|4|0|1|1|4|1|0|0|4|0|0|1|4|1|0|1|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|1|4|1|1|0|4|1|1|0|4|0|1|0|4|1|1|0|4|0|1|0
+1|1|0|4|0|0|1|4|0|0|1|4|1|0|1|4|0|1|1|4|0|1|0
+0|1|1|4|1|1|0|4|0|1|0|4|0|1|0|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|1|4|1|0|1|4|0|0|0|4|0|0|0|4|1|0|0|4|1|0|0
+1|0|1|4|1|0|1|4|0|1|1|4|0|0|1|4|1|0|0|4|1|0|0
+0|1|1|4|0|1|0|4|1|1|0|4|0|0|1|4|1|1|1|4|1|0|1
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|3|3|0|0|0|0|4|1|1|1|4|1|0|1|4|0|0|1|4|0|1|1
+4|3|3|0|0|0|0|4|1|1|1|4|0|1|1|4|1|1|0|4|1|0|0
+4|0|0|3|3|0|0|4|0|1|0|4|0|0|1|4|1|1|1|4|0|0|0
+4|0|0|3|3|0|0|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|0|0|0|0|3|3|4|0|1|1|4|0|0|0|4|0|1|0|4|0|1|0
+4|0|0|0|0|3|3|4|1|0|1|4|0|0|0|4|1|0|1|4|1|1|1
+4|4|4|4|4|4|4|4|1|1|0|4|1|0|0|4|0|1|0|4|1|1|0
+
+# Expected Output ASCII representation:
+
+3|0|0|4|0|0|1|4|1|1|1|4|1|1|0|4|1|0|0|4|0|0|0
+1|3|0|4|1|0|0|4|1|0|0|4|0|1|0|4|1|1|0|4|0|1|1
+0|1|3|4|1|0|0|4|1|0|1|4|0|1|0|4|0|0|0|4|1|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|3|1|1|4|0|0|1|4|3|0|0|4|1|0|0|4|1|0|0
+1|0|0|4|1|3|0|4|0|1|0|4|1|3|0|4|1|0|1|4|0|1|0
+1|1|0|4|0|1|3|4|1|0|0|4|0|0|3|4|1|0|1|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|1|4|1|1|0|4|1|1|0|4|0|1|0|4|1|1|0|4|0|1|0
+1|1|0|4|0|0|1|4|0|0|1|4|1|0|1|4|0|1|1|4|0|1|0
+0|1|1|4|1|1|0|4|0|1|0|4|0|1|0|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|1|4|1|0|1|4|0|0|0|4|0|0|0|4|1|0|0|4|1|0|0
+1|0|1|4|1|0|1|4|0|1|1|4|0|0|1|4|1|0|0|4|1|0|0
+0|1|1|4|0|1|0|4|1|1|0|4|0|0|1|4|1|1|1|4|1|0|1
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|3|3|0|0|0|0|4|1|1|1|4|3|0|1|4|0|0|1|4|0|1|1
+4|3|3|0|0|0|0|4|1|1|1|4|0|3|1|4|1|1|0|4|1|0|0
+4|0|0|3|3|0|0|4|0|1|0|4|0|0|3|4|1|1|1|4|0|0|0
+4|0|0|3|3|0|0|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|0|0|0|0|3|3|4|0|1|1|4|0|0|0|4|0|1|0|4|0|1|0
+4|0|0|0|0|3|3|4|1|0|1|4|0|0|0|4|1|0|1|4|1|1|1
+4|4|4|4|4|4|4|4|1|1|0|4|1|0|0|4|0|1|0|4|1|1|0
+
+# Color changes between transformed output and expected output ASCII representation:
+
+1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+
+                
+
+[USER]
+
+                    Here is a primitive that you can build upon to solve this problem. Remember, it's okay to not to use this primitive too
+                    if you think it's not helpful.
+
+                    def transform(grid_lst: list[list[int]]) -> list[list[int]]:
+    if not grid_lst:
+        return []
+    h = len(grid_lst)
+    w = len(grid_lst[0])
+    grid = [row[:] for row in grid_lst]
+    gap_fills = []
+
+    # Step 1: Fill single horizontal gaps
+    for r in range(h):
+        for j in range(1, w - 1):
+            if grid[r][j] == 0:
+                left_c = grid[r][j - 1]
+                right_c = grid[r][j + 1]
+                if left_c > 0 and right_c == left_c:
+                    C = left_c
+                    grid[r][j] = C
+                    gap_fills.append((r, j, C))
+
+    # Step 2: Extend upwards from gap fills
+    for r, col, C in gap_fills:
+        for i in range(r - 1, -1, -1):
+            if grid[i][col] != 0:
+                break
+            grid[i][col] = C
+
+    # Step 3: Vertical and isolated extensions
+    for col in range(w):
+        for r in range(h):
+            if grid[r][col] == 0:
+                continue
+            C = grid[r][col]
+            if r > 0 and grid[r - 1][col] == C:
+                continue  # not the top of a run
+            # Compute run length downwards
+            length = 1
+            curr = r + 1
+            while curr < h and grid[curr][col] == C:
+                length += 1
+                curr += 1
+            # Check if isolated (for length == 1)
+            is_isolated = (col == 0 or grid[r][col - 1] != C) and (col == w - 1 or grid[r][col + 1] != C)
+            if length >= 2 or (length == 1 and is_isolated):
+                # Extend upwards
+                for i in range(r - 1, -1, -1):
+                    if grid[i][col] != 0:
+                        break
+                    grid[i][col] = C
+
+    return grid
+
+                    Here are the examples that have failed:
+                    Example 0 failed
+# Input ASCII representation:
+
+4|4|4|4|4|4|4|4|0|0|1|4|1|0|1|4|0|1|0|4|0|0|0
+4|8|8|0|0|8|8|4|0|0|1|4|0|1|0|4|0|0|0|4|0|1|0
+4|8|8|0|0|8|8|4|0|1|1|4|0|0|0|4|0|0|0|4|0|0|0
+4|0|0|8|8|0|0|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|0|0|8|8|0|0|4|1|1|1|4|0|1|0|4|0|0|0|4|0|0|0
+4|0|0|0|0|0|0|4|0|1|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|0|0|0|0|0|0|4|0|1|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|1|0|0|4|0|0|0|4|0|0|0|4|0|0|0|4|0|1|0
+0|1|1|4|0|0|0|4|1|0|0|4|0|0|0|4|0|1|1|4|0|0|0
+0|0|0|4|0|0|0|4|1|0|0|4|0|0|1|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|0|0|4|0|0|0|4|1|1|0|4|0|1|1|4|0|1|0
+0|0|0|4|0|1|1|4|0|1|1|4|1|0|0|4|1|0|0|4|0|1|0
+0|0|0|4|0|1|1|4|0|1|0|4|1|0|0|4|1|0|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|0|4|0|0|0|4|0|0|0|4|1|0|0|4|0|0|1
+0|1|0|4|1|0|1|4|0|1|0|4|0|1|0|4|0|0|1|4|1|0|0
+1|0|0|4|1|0|0|4|0|1|0|4|0|0|0|4|0|0|0|4|1|0|1
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|0|4|1|0|0|4|1|0|0|4|0|0|1|4|1|1|0
+1|1|0|4|1|0|1|4|0|0|1|4|0|1|0|4|1|1|0|4|1|0|1
+1|0|0|4|1|1|1|4|0|1|0|4|0|1|1|4|1|1|1|4|0|0|0
+
+# Incorrect Transformed Output ASCII representation:
+
+4|4|4|4|4|4|4|4|0|0|1|4|1|1|1|4|0|1|0|4|0|1|0
+4|8|8|8|8|8|8|4|0|0|1|4|0|1|0|4|0|0|0|4|0|1|0
+4|8|8|8|8|8|8|4|0|1|1|4|0|0|0|4|0|0|0|4|0|0|0
+4|0|0|8|8|0|0|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|0|0|8|8|0|0|4|1|1|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|0|0|4|0|0|0|4|0|1|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|0|0|4|0|0|0|4|0|1|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|1|0|0|4|1|0|0|4|0|0|1|4|0|0|0|4|0|1|0
+0|1|1|4|0|0|0|4|1|0|0|4|0|0|1|4|0|1|1|4|0|1|0
+0|0|0|4|0|0|0|4|1|0|0|4|0|0|1|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|1|4|0|1|0|4|1|1|0|4|1|1|1|4|0|1|0
+0|0|0|4|0|1|1|4|0|1|1|4|1|0|0|4|1|0|0|4|0|1|0
+0|0|0|4|0|1|1|4|0|1|0|4|1|0|0|4|1|0|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|0|4|0|1|0|4|0|1|0|4|1|0|1|4|1|1|1
+1|1|0|4|1|1|1|4|0|1|0|4|0|1|0|4|0|0|1|4|1|1|0
+1|0|0|4|1|0|0|4|0|1|0|4|0|0|0|4|0|0|0|4|1|1|1
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|1|4|1|1|0|4|1|1|0|4|1|1|1|4|1|1|0
+1|1|0|4|1|1|1|4|0|1|1|4|0|1|0|4|1|1|0|4|1|1|1
+1|0|0|4|1|1|1|4|0|1|0|4|0|1|1|4|1|1|1|4|0|0|0
+
+# Expected Output ASCII representation:
+
+4|4|4|4|4|4|4|4|0|0|1|4|8|0|8|4|0|1|0|4|0|0|0
+4|8|8|0|0|8|8|4|0|0|1|4|0|8|0|4|0|0|0|4|0|1|0
+4|8|8|0|0|8|8|4|0|1|1|4|0|0|0|4|0|0|0|4|0|0|0
+4|0|0|8|8|0|0|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|0|0|8|8|0|0|4|8|1|8|4|0|1|0|4|0|0|0|4|0|0|0
+4|0|0|0|0|0|0|4|0|8|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|0|0|0|0|0|0|4|0|1|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|1|0|0|4|0|0|0|4|0|0|0|4|0|0|0|4|0|1|0
+0|1|1|4|0|0|0|4|1|0|0|4|0|0|0|4|0|1|1|4|0|0|0
+0|0|0|4|0|0|0|4|1|0|0|4|0|0|1|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|0|0|4|0|0|0|4|1|1|0|4|0|1|1|4|0|1|0
+0|0|0|4|0|1|1|4|0|1|1|4|1|0|0|4|1|0|0|4|0|1|0
+0|0|0|4|0|1|1|4|0|1|0|4|1|0|0|4|1|0|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|0|4|0|0|0|4|0|0|0|4|1|0|0|4|0|0|1
+0|1|0|4|1|0|1|4|0|1|0|4|0|1|0|4|0|0|1|4|1|0|0
+1|0|0|4|1|0|0|4|0|1|0|4|0|0|0|4|0|0|0|4|1|0|1
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|0|4|1|0|0|4|1|0|0|4|0|0|1|4|1|1|0
+1|1|0|4|1|0|1|4|0|0|1|4|0|1|0|4|1|1|0|4|1|0|1
+1|0|0|4|1|1|1|4|0|1|0|4|0|1|1|4|1|1|1|4|0|0|0
+
+# Color changes between transformed output and expected output ASCII representation:
+
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 8|1 -> 0|1 -> 8|  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  
+  --  |  --  |  --  |8 -> 0|8 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 8|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |8 -> 0|8 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 8|  --  |1 -> 8|  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |4 -> 0|  --  |  --  |  --  |  --  |  --  |1 -> 8|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |4 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |1 -> 0|1 -> 0|  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |1 -> 0|  --  |1 -> 0|1 -> 0|  --  
+1 -> 0|  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |1 -> 0|  --  |  --  |  --  |1 -> 0|  --  |  --  |1 -> 0|1 -> 0|  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+Example 1 failed
+# Input ASCII representation:
+
+0|0|1|4|1|0|0|4|0|0|0|4|0|0|1|4|0|0|1|4|0|1|0
+1|1|0|4|0|1|0|4|1|0|1|4|1|1|1|4|1|1|0|4|0|0|1
+1|1|1|4|0|0|1|4|1|0|1|4|0|0|1|4|0|0|1|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|0|4|1|0|0|4|1|0|0|4|1|1|0|4|0|0|1|4|1|0|0
+0|0|0|4|0|0|1|4|0|1|0|4|1|0|0|4|0|0|0|4|0|0|1
+0|1|0|4|0|0|1|4|1|0|1|4|0|1|0|4|1|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|0|4|0|1|0|4|1|1|1|4|0|0|0|4|0|1|0|4|0|1|1
+0|0|0|4|0|1|0|4|0|0|0|4|1|0|1|4|0|0|1|4|0|0|1
+0|1|1|4|0|1|0|4|1|0|0|4|0|0|0|4|0|0|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|1|4|1|1|0|4|1|0|0|4|0|0|1|4|0|0|1|4|0|0|1
+1|1|1|4|1|0|1|4|0|0|1|4|0|0|0|4|1|1|0|4|1|0|0
+1|1|0|4|1|1|0|4|1|1|0|4|0|0|1|4|0|1|1|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|0|1|0|4|1|0|1|4|1|0|1|4|0|0|0|0|6|6|4
+1|1|0|4|0|1|1|4|0|0|0|4|1|0|0|4|0|0|0|0|6|6|4
+0|0|0|4|0|0|1|4|0|0|0|4|0|1|1|4|6|6|6|6|0|0|4
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|6|6|6|6|0|0|4
+0|0|1|4|1|0|0|4|0|1|0|4|1|1|0|4|0|0|6|6|0|0|4
+1|1|1|4|0|0|0|4|1|1|1|4|0|0|1|4|0|0|6|6|0|0|4
+0|0|0|4|1|0|1|4|1|1|1|4|0|0|0|4|4|4|4|4|4|4|4
+
+# Incorrect Transformed Output ASCII representation:
+
+1|1|1|4|1|1|1|4|1|1|1|4|0|0|1|4|0|0|1|4|1|1|1
+1|1|0|4|0|1|1|4|1|1|1|4|1|1|1|4|1|1|1|4|1|0|1
+1|1|1|4|0|0|1|4|1|1|1|4|0|0|1|4|0|0|1|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|0|4|1|0|1|4|1|1|0|4|1|1|0|4|1|0|1|4|1|1|0
+0|1|0|4|0|0|1|4|0|1|0|4|1|1|0|4|1|0|0|4|0|1|1
+0|1|0|4|0|0|1|4|1|1|1|4|0|1|0|4|1|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|0|4|0|1|0|4|1|1|1|4|0|1|0|4|0|1|1|4|0|1|1
+0|0|0|4|0|1|0|4|1|0|0|4|1|1|1|4|0|0|1|4|0|0|1
+0|1|1|4|0|1|0|4|1|0|0|4|0|0|0|4|0|0|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|1|4|1|1|0|4|1|0|1|4|0|0|1|4|0|1|1|4|1|0|1
+1|1|1|4|1|1|1|4|0|0|1|4|0|0|1|4|1|1|0|4|1|0|4
+1|1|0|4|1|1|0|4|1|1|0|4|0|0|1|4|0|1|1|4|1|0|4
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|0|1|1|4|1|1|1|4|1|1|1|4|6|6|6|6|6|6|4
+1|1|0|4|0|1|1|4|0|0|0|4|1|0|0|4|6|6|6|6|6|6|4
+0|0|0|4|0|0|1|4|0|0|0|4|0|1|1|4|6|6|6|6|0|0|4
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|6|6|6|6|0|0|4
+0|0|1|4|1|1|0|4|1|1|1|4|1|1|1|4|0|0|6|6|0|0|4
+1|1|1|4|0|1|0|4|1|1|1|4|0|0|1|4|0|0|6|6|0|0|4
+0|0|0|4|1|1|1|4|1|1|1|4|0|0|0|4|4|4|4|4|4|4|4
+
+# Expected Output ASCII representation:
+
+0|0|6|4|1|0|0|4|0|0|0|4|0|0|1|4|0|0|1|4|0|1|0
+6|6|0|4|0|1|0|4|1|0|1|4|1|1|1|4|1|1|0|4|0|0|1
+1|6|1|4|0|0|1|4|1|0|1|4|0|0|1|4|0|0|1|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|0|4|1|0|0|4|1|0|0|4|1|1|0|4|0|0|1|4|1|0|0
+0|0|0|4|0|0|1|4|0|1|0|4|1|0|0|4|0|0|0|4|0|0|1
+0|1|0|4|0|0|1|4|1|0|1|4|0|1|0|4|1|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|0|4|0|1|0|4|1|1|1|4|0|0|0|4|0|1|0|4|0|1|1
+0|0|0|4|0|1|0|4|0|0|0|4|1|0|1|4|0|0|1|4|0|0|1
+0|1|1|4|0|1|0|4|1|0|0|4|0|0|0|4|0|0|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|6|4|1|1|0|4|1|0|0|4|0|0|1|4|0|0|6|4|0|0|1
+6|6|1|4|1|0|1|4|0|0|1|4|0|0|0|4|6|6|0|4|1|0|0
+1|6|0|4|1|1|0|4|1|1|0|4|0|0|1|4|0|6|1|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|0|1|0|4|1|0|1|4|1|0|1|4|0|0|0|0|6|6|4
+1|1|0|4|0|1|1|4|0|0|0|4|1|0|0|4|0|0|0|0|6|6|4
+0|0|0|4|0|0|1|4|0|0|0|4|0|1|1|4|6|6|6|6|0|0|4
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|6|6|6|6|0|0|4
+0|0|1|4|1|0|0|4|0|1|0|4|1|1|0|4|0|0|6|6|0|0|4
+1|1|1|4|0|0|0|4|1|1|1|4|0|0|1|4|0|0|6|6|0|0|4
+0|0|0|4|1|0|1|4|1|1|1|4|0|0|0|4|4|4|4|4|4|4|4
+
+# Color changes between transformed output and expected output ASCII representation:
+
+1 -> 0|1 -> 0|1 -> 6|  --  |  --  |1 -> 0|1 -> 0|  --  |1 -> 0|1 -> 0|1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |1 -> 0
+1 -> 6|1 -> 6|  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |1 -> 0|  --  |  --  
+  --  |1 -> 6|  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |1 -> 0|  --  
+  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |1 -> 0|  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |1 -> 6|  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|1 -> 6|  --  |1 -> 0|  --  |  --  
+1 -> 6|1 -> 6|  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |1 -> 6|1 -> 6|  --  |  --  |  --  |  --  |4 -> 0
+  --  |1 -> 6|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 6|  --  |  --  |  --  |  --  |4 -> 0
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |1 -> 0|  --  |  --  |  --  |1 -> 0|  --  |  --  |6 -> 0|6 -> 0|6 -> 0|6 -> 0|  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |6 -> 0|6 -> 0|6 -> 0|6 -> 0|  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |1 -> 0|  --  |1 -> 0|  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+Example 2 failed
+# Input ASCII representation:
+
+1|0|0|4|0|0|1|4|1|1|1|4|1|1|0|4|1|0|0|4|0|0|0
+1|1|0|4|1|0|0|4|1|0|0|4|0|1|0|4|1|1|0|4|0|1|1
+0|1|1|4|1|0|0|4|1|0|1|4|0|1|0|4|0|0|0|4|1|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|1|4|0|0|1|4|1|0|0|4|1|0|0|4|1|0|0
+1|0|0|4|1|1|0|4|0|1|0|4|1|1|0|4|1|0|1|4|0|1|0
+1|1|0|4|0|1|1|4|1|0|0|4|0|0|1|4|1|0|1|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|1|4|1|1|0|4|1|1|0|4|0|1|0|4|1|1|0|4|0|1|0
+1|1|0|4|0|0|1|4|0|0|1|4|1|0|1|4|0|1|1|4|0|1|0
+0|1|1|4|1|1|0|4|0|1|0|4|0|1|0|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|1|4|1|0|1|4|0|0|0|4|0|0|0|4|1|0|0|4|1|0|0
+1|0|1|4|1|0|1|4|0|1|1|4|0|0|1|4|1|0|0|4|1|0|0
+0|1|1|4|0|1|0|4|1|1|0|4|0|0|1|4|1|1|1|4|1|0|1
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|3|3|0|0|0|0|4|1|1|1|4|1|0|1|4|0|0|1|4|0|1|1
+4|3|3|0|0|0|0|4|1|1|1|4|0|1|1|4|1|1|0|4|1|0|0
+4|0|0|3|3|0|0|4|0|1|0|4|0|0|1|4|1|1|1|4|0|0|0
+4|0|0|3|3|0|0|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|0|0|0|0|3|3|4|0|1|1|4|0|0|0|4|0|1|0|4|0|1|0
+4|0|0|0|0|3|3|4|1|0|1|4|0|0|0|4|1|0|1|4|1|1|1
+4|4|4|4|4|4|4|4|1|1|0|4|1|0|0|4|0|1|0|4|1|1|0
+
+# Incorrect Transformed Output ASCII representation:
+
+1|1|0|4|1|0|1|4|1|1|1|4|1|1|0|4|1|0|0|4|0|1|0
+1|1|0|4|1|0|0|4|1|1|0|4|0|1|0|4|1|1|0|4|0|1|1
+0|1|1|4|1|0|0|4|1|1|1|4|0|1|0|4|0|0|0|4|1|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|1|4|1|0|1|4|1|0|1|4|1|1|1|4|1|1|0
+1|0|0|4|1|1|0|4|1|1|0|4|1|1|1|4|1|1|1|4|0|1|0
+1|1|0|4|0|1|1|4|1|0|0|4|0|0|1|4|1|1|1|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|1|4|1|1|1|4|1|1|0|4|0|1|0|4|1|1|0|4|0|1|0
+1|1|0|4|0|0|1|4|0|1|1|4|1|1|1|4|0|1|1|4|0|1|0
+0|1|1|4|1|1|0|4|0|1|0|4|0|1|0|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|1|4|1|1|1|4|0|1|0|4|0|0|1|4|1|0|0|4|1|1|0
+1|1|1|4|1|1|1|4|0|1|1|4|0|0|1|4|1|0|0|4|1|1|0
+4|1|1|4|0|1|0|4|1|1|0|4|0|0|1|4|1|1|1|4|1|1|1
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|3|3|3|3|3|3|4|1|1|1|4|1|1|1|4|1|1|1|4|1|1|1
+4|3|3|3|3|3|3|4|1|1|1|4|0|1|1|4|1|1|0|4|1|0|0
+4|0|0|3|3|3|3|4|0|1|0|4|0|0|1|4|1|1|1|4|0|0|0
+4|0|0|3|3|3|3|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|0|0|0|0|3|3|4|1|1|1|4|1|0|0|4|0|1|0|4|1|1|0
+4|0|0|0|0|3|3|4|1|1|1|4|1|0|0|4|1|1|1|4|1|1|1
+4|4|4|4|4|4|4|4|1|1|0|4|1|0|0|4|0|1|0|4|1|1|0
+
+# Expected Output ASCII representation:
+
+3|0|0|4|0|0|1|4|1|1|1|4|1|1|0|4|1|0|0|4|0|0|0
+1|3|0|4|1|0|0|4|1|0|0|4|0|1|0|4|1|1|0|4|0|1|1
+0|1|3|4|1|0|0|4|1|0|1|4|0|1|0|4|0|0|0|4|1|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|3|1|1|4|0|0|1|4|3|0|0|4|1|0|0|4|1|0|0
+1|0|0|4|1|3|0|4|0|1|0|4|1|3|0|4|1|0|1|4|0|1|0
+1|1|0|4|0|1|3|4|1|0|0|4|0|0|3|4|1|0|1|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|1|4|1|1|0|4|1|1|0|4|0|1|0|4|1|1|0|4|0|1|0
+1|1|0|4|0|0|1|4|0|0|1|4|1|0|1|4|0|1|1|4|0|1|0
+0|1|1|4|1|1|0|4|0|1|0|4|0|1|0|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|1|4|1|0|1|4|0|0|0|4|0|0|0|4|1|0|0|4|1|0|0
+1|0|1|4|1|0|1|4|0|1|1|4|0|0|1|4|1|0|0|4|1|0|0
+0|1|1|4|0|1|0|4|1|1|0|4|0|0|1|4|1|1|1|4|1|0|1
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|3|3|0|0|0|0|4|1|1|1|4|3|0|1|4|0|0|1|4|0|1|1
+4|3|3|0|0|0|0|4|1|1|1|4|0|3|1|4|1|1|0|4|1|0|0
+4|0|0|3|3|0|0|4|0|1|0|4|0|0|3|4|1|1|1|4|0|0|0
+4|0|0|3|3|0|0|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|0|0|0|0|3|3|4|0|1|1|4|0|0|0|4|0|1|0|4|0|1|0
+4|0|0|0|0|3|3|4|1|0|1|4|0|0|0|4|1|0|1|4|1|1|1
+4|4|4|4|4|4|4|4|1|1|0|4|1|0|0|4|0|1|0|4|1|1|0
+
+# Color changes between transformed output and expected output ASCII representation:
+
+1 -> 3|1 -> 0|  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  
+  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |1 -> 3|  --  |1 -> 0|  --  |  --  |1 -> 0|1 -> 0|  --  |  --  |1 -> 0|  --  
+  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |1 -> 3|1 -> 0|  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  
+  --  |1 -> 0|  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  
+4 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |3 -> 0|3 -> 0|3 -> 0|3 -> 0|  --  |  --  |  --  |  --  |  --  |1 -> 3|1 -> 0|  --  |  --  |1 -> 0|1 -> 0|  --  |  --  |1 -> 0|  --  |  --  
+  --  |  --  |  --  |3 -> 0|3 -> 0|3 -> 0|3 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |3 -> 0|3 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |3 -> 0|3 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+
+                
+
+[USER]
+
+                    Here is a primitive that you can build upon to solve this problem. Remember, it's okay to not to use this primitive too
+                    if you think it's not helpful.
+
+                    def transform(grid_lst: list[list[int]]) -> list[list[int]]:
+    if not grid_lst or not grid_lst[0]:
+        return []
+    input_grid = grid_lst
+    rows = len(input_grid)
+    cols = len(input_grid[0])
+    output_grid = [row[:] for row in input_grid]
+    
+    # Find divider rows and columns
+    h_div_rows = sorted(set(r for r in range(rows) if any(input_grid[r][c] == 2 for c in range(cols))))
+    v_div_cols = sorted(set(c for c in range(cols) if any(input_grid[r][c] == 2 for r in range(rows))))
+    
+    # Clear all 1's on divider rows and columns
+    for r in h_div_rows:
+        for c in range(cols):
+            if output_grid[r][c] == 1:
+                output_grid[r][c] = 0
+    for c in v_div_cols:
+        for r in range(rows):
+            if output_grid[r][c] == 1:
+                output_grid[r][c] = 0
+    
+    directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+    
+    def get_components(r_start, r_end, c_start, c_end):
+        visited = set()
+        components = []
+        for r in range(r_start, r_end + 1):
+            for c in range(c_start, c_end + 1):
+                if input_grid[r][c] == 1 and (r, c) not in visited:
+                    stack = [(r, c)]
+                    comp = []
+                    visited.add((r, c))
+                    while stack:
+                        cr, cc = stack.pop()
+                        comp.append((cr, cc))
+                        for dr, dc in directions:
+                            nr = cr + dr
+                            nc = cc + dc
+                            if (r_start <= nr <= r_end and c_start <= nc <= c_end and
+                                input_grid[nr][nc] == 1 and (nr, nc) not in visited):
+                                visited.add((nr, nc))
+                                stack.append((nr, nc))
+                    if comp:
+                        components.append(comp)
+        return components
+    
+    # Get all horizontal sections
+    h_sections = []
+    if h_div_rows:
+        # Top section
+        r_start = 0
+        r_end = h_div_rows[0] - 1
+        if r_start <= r_end:
+            h_sections.append((r_start, r_end))
+        # Internal sections
+        for i in range(len(h_div_rows) - 1):
+            r_start = h_div_rows[i] + 1
+            r_end = h_div_rows[i + 1] - 1
+            if r_start <= r_end:
+                h_sections.append((r_start, r_end))
+        # Bottom section
+        r_start = h_div_rows[-1] + 1
+        r_end = rows - 1
+        if r_start <= r_end:
+            h_sections.append((r_start, r_end))
+    else:
+        # No horizontal dividers, whole grid
+        if rows > 0:
+            h_sections.append((0, rows - 1))
+    
+    # Get all vertical panels
+    def get_v_panels():
+        v_panels = []
+        if v_div_cols:
+            # Left panel
+            c_start = 0
+            c_end = v_div_cols[0] - 1
+            if c_start <= c_end:
+                v_panels.append((c_start, c_end))
+            # Internal panels
+            for j in range(len(v_div_cols) - 1):
+                c_start = v_div_cols[j] + 1
+                c_end = v_div_cols[j + 1] - 1
+                if c_start <= c_end:
+                    v_panels.append((c_start, c_end))
+            # Right panel
+            c_start = v_div_cols[-1] + 1
+            c_end = cols - 1
+            if c_start <= c_end:
+                v_panels.append((c_start, c_end))
+        else:
+            # No vertical dividers, whole grid
+            if cols > 0:
+                v_panels.append((0, cols - 1))
+        return v_panels
+    
+    v_panels = get_v_panels()
+    
+    # Process each panel in each section
+    for r_start, r_end in h_sections:
+        for c_start, c_end in v_panels:
+            if r_start > r_end or c_start > c_end:
+                continue
+            # Clear 1's in this panel in output
+            for rr in range(r_start, r_end + 1):
+                for cc in range(c_start, c_end + 1):
+                    if output_grid[rr][cc] == 1:
+                        output_grid[rr][cc] = 0
+            # Get components from input
+            comps = get_components(r_start, r_end, c_start, c_end)
+            # For each component, compute and apply shift
+            for comp in comps:
+                if not comp:
+                    continue
+                min_r_comp = min(pos[0] for pos in comp)
+                max_r_comp = max(pos[0] for pos in comp)
+                min_c_comp = min(pos[1] for pos in comp)
+                max_c_comp = max(pos[1] for pos in comp)
+                v_shift = 0
+                if min_r_comp == r_start:
+                    v_shift = 1
+                elif max_r_comp == r_end:
+                    v_shift = -1
+                h_shift = 0
+                if min_c_comp == c_start:
+                    h_shift = 1
+                elif max_c_comp == c_end:
+                    h_shift = -1
+                # Apply to new positions
+                for old_r, old_c in comp:
+                    new_r = old_r + v_shift
+                    new_c = old_c + h_shift
+                    if 0 <= new_r < rows and 0 <= new_c < cols:
+                        output_grid[new_r][new_c] = 1
+    
+    return output_grid
+
+                    Here are the examples that have failed:
+                    Example 0 failed
+# Input ASCII representation:
+
+4|4|4|4|4|4|4|4|0|0|1|4|1|0|1|4|0|1|0|4|0|0|0
+4|8|8|0|0|8|8|4|0|0|1|4|0|1|0|4|0|0|0|4|0|1|0
+4|8|8|0|0|8|8|4|0|1|1|4|0|0|0|4|0|0|0|4|0|0|0
+4|0|0|8|8|0|0|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|0|0|8|8|0|0|4|1|1|1|4|0|1|0|4|0|0|0|4|0|0|0
+4|0|0|0|0|0|0|4|0|1|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|0|0|0|0|0|0|4|0|1|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|1|0|0|4|0|0|0|4|0|0|0|4|0|0|0|4|0|1|0
+0|1|1|4|0|0|0|4|1|0|0|4|0|0|0|4|0|1|1|4|0|0|0
+0|0|0|4|0|0|0|4|1|0|0|4|0|0|1|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|0|0|4|0|0|0|4|1|1|0|4|0|1|1|4|0|1|0
+0|0|0|4|0|1|1|4|0|1|1|4|1|0|0|4|1|0|0|4|0|1|0
+0|0|0|4|0|1|1|4|0|1|0|4|1|0|0|4|1|0|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|0|4|0|0|0|4|0|0|0|4|1|0|0|4|0|0|1
+0|1|0|4|1|0|1|4|0|1|0|4|0|1|0|4|0|0|1|4|1|0|0
+1|0|0|4|1|0|0|4|0|1|0|4|0|0|0|4|0|0|0|4|1|0|1
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|0|4|1|0|0|4|1|0|0|4|0|0|1|4|1|1|0
+1|1|0|4|1|0|1|4|0|0|1|4|0|1|0|4|1|1|0|4|1|0|1
+1|0|0|4|1|1|1|4|0|1|0|4|0|1|1|4|1|1|1|4|0|0|0
+
+# Incorrect Transformed Output ASCII representation:
+
+4|4|4|4|4|4|4|4|0|0|0|4|0|0|0|4|0|0|0|4|0|0|0
+4|8|8|0|0|8|8|4|0|0|1|4|1|1|1|4|0|1|0|4|0|1|0
+4|8|8|0|0|8|8|4|0|0|1|4|0|0|0|4|0|0|0|4|0|0|0
+4|0|0|8|8|0|0|4|4|1|1|4|4|4|4|4|4|4|4|4|4|4|4
+4|0|0|8|8|0|0|4|1|1|1|4|0|1|0|4|0|0|0|4|0|0|0
+4|0|0|0|0|0|0|4|0|1|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|0|0|0|0|0|0|4|0|1|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|1|0|0|4|0|0|0|4|0|0|0|4|0|0|0|4|0|1|0
+0|1|1|4|0|0|0|4|1|0|0|4|0|0|0|4|0|1|1|4|0|0|0
+0|0|0|4|0|0|0|4|1|0|0|4|0|0|1|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|0|4|1|0|0|4|0|0|0|4|1|1|0|4|0|1|1|4|0|1|0
+0|0|0|4|0|1|1|4|0|1|1|4|1|0|0|4|1|0|0|4|0|1|0
+0|0|0|4|0|1|1|4|0|1|0|4|1|0|0|4|1|0|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|0|4|1|1|0|4|0|0|0|4|0|0|0|4|1|0|0|4|0|1|0
+0|1|0|4|1|0|1|4|0|1|0|4|0|1|0|4|0|0|1|4|1|0|0
+0|1|0|4|1|0|0|4|0|1|0|4|0|0|0|4|0|0|0|4|1|1|0
+4|1|4|4|1|1|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|1|4|1|0|1|4|1|0|0|4|1|1|0|4|1|1|1|4|1|1|0
+0|1|0|4|1|1|1|4|0|1|1|4|0|1|1|4|1|1|1|4|1|1|0
+0|0|0|4|0|0|0|4|0|0|0|4|0|0|0|4|0|0|0|4|0|0|0
+
+# Expected Output ASCII representation:
+
+4|4|4|4|4|4|4|4|0|0|1|4|8|0|8|4|0|1|0|4|0|0|0
+4|8|8|0|0|8|8|4|0|0|1|4|0|8|0|4|0|0|0|4|0|1|0
+4|8|8|0|0|8|8|4|0|1|1|4|0|0|0|4|0|0|0|4|0|0|0
+4|0|0|8|8|0|0|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|0|0|8|8|0|0|4|8|1|8|4|0|1|0|4|0|0|0|4|0|0|0
+4|0|0|0|0|0|0|4|0|8|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|0|0|0|0|0|0|4|0|1|1|4|0|1|0|4|0|1|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|1|0|0|4|0|0|0|4|0|0|0|4|0|0|0|4|0|1|0
+0|1|1|4|0|0|0|4|1|0|0|4|0|0|0|4|0|1|1|4|0|0|0
+0|0|0|4|0|0|0|4|1|0|0|4|0|0|1|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|0|0|4|0|0|0|4|1|1|0|4|0|1|1|4|0|1|0
+0|0|0|4|0|1|1|4|0|1|1|4|1|0|0|4|1|0|0|4|0|1|0
+0|0|0|4|0|1|1|4|0|1|0|4|1|0|0|4|1|0|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|0|4|0|0|0|4|0|0|0|4|1|0|0|4|0|0|1
+0|1|0|4|1|0|1|4|0|1|0|4|0|1|0|4|0|0|1|4|1|0|0
+1|0|0|4|1|0|0|4|0|1|0|4|0|0|0|4|0|0|0|4|1|0|1
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|0|4|1|0|0|4|1|0|0|4|0|0|1|4|1|1|0
+1|1|0|4|1|0|1|4|0|0|1|4|0|1|0|4|1|1|0|4|1|0|1
+1|0|0|4|1|1|1|4|0|1|0|4|0|1|1|4|1|1|1|4|0|0|0
+
+# Color changes between transformed output and expected output ASCII representation:
+
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 1|  --  |0 -> 8|  --  |0 -> 8|  --  |  --  |0 -> 1|  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|1 -> 8|1 -> 0|  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 1|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 4|1 -> 4|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 8|  --  |1 -> 8|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 8|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+0 -> 1|1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+0 -> 1|1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|0 -> 1
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+0 -> 1|1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|0 -> 1
+  --  |1 -> 4|  --  |  --  |1 -> 4|1 -> 4|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+0 -> 1|1 -> 0|1 -> 0|  --  |  --  |0 -> 1|1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |1 -> 0|1 -> 0|  --  |  --  |  --  |  --  |  --  
+0 -> 1|  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |1 -> 0|  --  |  --  |1 -> 0|0 -> 1
+0 -> 1|  --  |  --  |  --  |0 -> 1|0 -> 1|0 -> 1|  --  |  --  |0 -> 1|  --  |  --  |  --  |0 -> 1|0 -> 1|  --  |0 -> 1|0 -> 1|0 -> 1|  --  |  --  |  --  |  --  
+
+Example 1 failed
+# Input ASCII representation:
+
+0|0|1|4|1|0|0|4|0|0|0|4|0|0|1|4|0|0|1|4|0|1|0
+1|1|0|4|0|1|0|4|1|0|1|4|1|1|1|4|1|1|0|4|0|0|1
+1|1|1|4|0|0|1|4|1|0|1|4|0|0|1|4|0|0|1|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|0|4|1|0|0|4|1|0|0|4|1|1|0|4|0|0|1|4|1|0|0
+0|0|0|4|0|0|1|4|0|1|0|4|1|0|0|4|0|0|0|4|0|0|1
+0|1|0|4|0|0|1|4|1|0|1|4|0|1|0|4|1|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|0|4|0|1|0|4|1|1|1|4|0|0|0|4|0|1|0|4|0|1|1
+0|0|0|4|0|1|0|4|0|0|0|4|1|0|1|4|0|0|1|4|0|0|1
+0|1|1|4|0|1|0|4|1|0|0|4|0|0|0|4|0|0|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|1|4|1|1|0|4|1|0|0|4|0|0|1|4|0|0|1|4|0|0|1
+1|1|1|4|1|0|1|4|0|0|1|4|0|0|0|4|1|1|0|4|1|0|0
+1|1|0|4|1|1|0|4|1|1|0|4|0|0|1|4|0|1|1|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|0|1|0|4|1|0|1|4|1|0|1|4|0|0|0|0|6|6|4
+1|1|0|4|0|1|1|4|0|0|0|4|1|0|0|4|0|0|0|0|6|6|4
+0|0|0|4|0|0|1|4|0|0|0|4|0|1|1|4|6|6|6|6|0|0|4
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|6|6|6|6|0|0|4
+0|0|1|4|1|0|0|4|0|1|0|4|1|1|0|4|0|0|6|6|0|0|4
+1|1|1|4|0|0|0|4|1|1|1|4|0|0|1|4|0|0|6|6|0|0|4
+0|0|0|4|1|0|1|4|1|1|1|4|0|0|0|4|4|4|4|4|4|4|4
+
+# Incorrect Transformed Output ASCII representation:
+
+0|0|0|4|0|0|0|4|0|0|0|4|0|0|0|4|0|0|0|4|0|0|0
+0|1|1|4|1|1|0|4|1|0|1|4|0|0|1|4|1|1|1|4|0|1|0
+0|1|1|1|0|0|1|4|1|0|1|4|1|1|1|4|0|0|1|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|1|4|4|4|4|4|4|4|4
+0|1|0|4|1|0|0|4|1|0|0|4|1|1|0|4|0|0|1|4|1|0|0
+0|0|0|4|0|0|1|4|0|1|0|4|1|0|0|4|0|0|0|4|0|1|0
+0|1|0|4|0|0|1|4|1|0|1|4|0|1|0|4|1|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|1|4|0|1|0|4|1|1|1|4|0|0|0|4|0|1|0|4|1|1|0
+0|0|0|4|0|1|0|4|0|0|0|4|1|0|1|4|0|0|1|4|0|1|0
+0|1|1|4|0|1|0|4|1|0|0|4|0|0|0|4|0|0|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|1|1|1|1|0|4|1|0|0|4|0|0|1|4|0|0|1|4|0|1|0
+0|1|1|1|1|0|1|4|0|0|1|4|0|0|0|4|1|1|0|4|1|0|0
+0|1|1|4|1|1|0|4|1|1|0|4|0|0|1|4|0|1|1|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|0|1|0|4|1|0|1|4|1|0|1|4|0|0|0|0|6|6|4
+0|1|1|4|0|1|1|4|0|0|0|4|1|0|0|4|0|0|0|0|6|6|4
+0|0|0|4|0|0|1|4|0|0|0|4|0|1|1|4|6|6|6|6|0|0|4
+4|4|4|4|4|4|4|4|4|1|4|4|4|4|4|4|6|6|6|6|0|0|4
+0|0|0|1|1|0|0|4|1|1|1|4|1|1|0|4|0|0|6|6|0|0|4
+0|1|1|1|1|0|1|4|1|1|1|4|0|0|1|4|0|0|6|6|0|0|4
+0|0|0|4|0|0|0|4|0|0|0|4|0|0|0|4|4|4|4|4|4|4|4
+
+# Expected Output ASCII representation:
+
+0|0|6|4|1|0|0|4|0|0|0|4|0|0|1|4|0|0|1|4|0|1|0
+6|6|0|4|0|1|0|4|1|0|1|4|1|1|1|4|1|1|0|4|0|0|1
+1|6|1|4|0|0|1|4|1|0|1|4|0|0|1|4|0|0|1|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|0|4|1|0|0|4|1|0|0|4|1|1|0|4|0|0|1|4|1|0|0
+0|0|0|4|0|0|1|4|0|1|0|4|1|0|0|4|0|0|0|4|0|0|1
+0|1|0|4|0|0|1|4|1|0|1|4|0|1|0|4|1|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|0|4|0|1|0|4|1|1|1|4|0|0|0|4|0|1|0|4|0|1|1
+0|0|0|4|0|1|0|4|0|0|0|4|1|0|1|4|0|0|1|4|0|0|1
+0|1|1|4|0|1|0|4|1|0|0|4|0|0|0|4|0|0|0|4|0|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|6|4|1|1|0|4|1|0|0|4|0|0|1|4|0|0|6|4|0|0|1
+6|6|1|4|1|0|1|4|0|0|1|4|0|0|0|4|6|6|0|4|1|0|0
+1|6|0|4|1|1|0|4|1|1|0|4|0|0|1|4|0|6|1|4|1|0|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|0|4|0|1|0|4|1|0|1|4|1|0|1|4|0|0|0|0|6|6|4
+1|1|0|4|0|1|1|4|0|0|0|4|1|0|0|4|0|0|0|0|6|6|4
+0|0|0|4|0|0|1|4|0|0|0|4|0|1|1|4|6|6|6|6|0|0|4
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|6|6|6|6|0|0|4
+0|0|1|4|1|0|0|4|0|1|0|4|1|1|0|4|0|0|6|6|0|0|4
+1|1|1|4|0|0|0|4|1|1|1|4|0|0|1|4|0|0|6|6|0|0|4
+0|0|0|4|1|0|1|4|1|1|1|4|0|0|0|4|4|4|4|4|4|4|4
+
+# Color changes between transformed output and expected output ASCII representation:
+
+  --  |  --  |0 -> 6|  --  |0 -> 1|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 1|  --  |  --  |  --  |0 -> 1|  --  |  --  |0 -> 1|  --  
+0 -> 6|1 -> 6|1 -> 0|  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 1|0 -> 1|  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |1 -> 0|0 -> 1
+0 -> 1|1 -> 6|  --  |1 -> 4|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 4|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|0 -> 1
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+0 -> 1|  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |0 -> 1
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|0 -> 1
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+0 -> 1|  --  |1 -> 6|1 -> 4|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 6|  --  |  --  |1 -> 0|0 -> 1
+0 -> 6|1 -> 6|  --  |1 -> 4|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 6|1 -> 6|  --  |  --  |  --  |  --  |  --  
+0 -> 1|1 -> 6|1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 6|  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+0 -> 1|  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 4|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |0 -> 1|1 -> 4|  --  |  --  |  --  |  --  |1 -> 0|  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+0 -> 1|  --  |  --  |1 -> 4|1 -> 0|  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |0 -> 1|  --  |0 -> 1|  --  |0 -> 1|0 -> 1|0 -> 1|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+
+Example 2 failed
+# Input ASCII representation:
+
+1|0|0|4|0|0|1|4|1|1|1|4|1|1|0|4|1|0|0|4|0|0|0
+1|1|0|4|1|0|0|4|1|0|0|4|0|1|0|4|1|1|0|4|0|1|1
+0|1|1|4|1|0|0|4|1|0|1|4|0|1|0|4|0|0|0|4|1|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|1|1|1|4|0|0|1|4|1|0|0|4|1|0|0|4|1|0|0
+1|0|0|4|1|1|0|4|0|1|0|4|1|1|0|4|1|0|1|4|0|1|0
+1|1|0|4|0|1|1|4|1|0|0|4|0|0|1|4|1|0|1|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|1|4|1|1|0|4|1|1|0|4|0|1|0|4|1|1|0|4|0|1|0
+1|1|0|4|0|0|1|4|0|0|1|4|1|0|1|4|0|1|1|4|0|1|0
+0|1|1|4|1|1|0|4|0|1|0|4|0|1|0|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|1|4|1|0|1|4|0|0|0|4|0|0|0|4|1|0|0|4|1|0|0
+1|0|1|4|1|0|1|4|0|1|1|4|0|0|1|4|1|0|0|4|1|0|0
+0|1|1|4|0|1|0|4|1|1|0|4|0|0|1|4|1|1|1|4|1|0|1
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|3|3|0|0|0|0|4|1|1|1|4|1|0|1|4|0|0|1|4|0|1|1
+4|3|3|0|0|0|0|4|1|1|1|4|0|1|1|4|1|1|0|4|1|0|0
+4|0|0|3|3|0|0|4|0|1|0|4|0|0|1|4|1|1|1|4|0|0|0
+4|0|0|3|3|0|0|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|0|0|0|0|3|3|4|0|1|1|4|0|0|0|4|0|1|0|4|0|1|0
+4|0|0|0|0|3|3|4|1|0|1|4|0|0|0|4|1|0|1|4|1|1|1
+4|4|4|4|4|4|4|4|1|1|0|4|1|0|0|4|0|1|0|4|1|1|0
+
+# Incorrect Transformed Output ASCII representation:
+
+0|0|0|4|0|0|0|4|0|0|0|4|0|0|0|4|0|0|0|4|0|0|0
+0|1|0|4|1|0|1|4|1|1|1|4|1|1|0|4|1|0|0|4|1|1|0
+0|1|1|4|1|0|0|4|1|0|1|4|0|1|0|4|1|1|0|1|1|0|0
+4|4|1|1|4|4|4|4|1|4|4|4|4|1|4|4|4|4|4|4|4|4|4
+0|1|0|4|1|1|1|4|0|0|1|4|1|0|0|4|1|0|0|4|1|0|0
+0|1|0|4|1|1|0|4|0|1|0|4|1|1|0|4|1|0|1|4|0|1|0
+0|1|1|4|0|1|1|4|1|0|0|4|0|0|1|4|1|0|1|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|0|1|1|1|1|0|4|1|1|0|4|0|1|0|4|1|1|0|4|0|1|0
+0|1|1|4|0|0|1|4|0|0|1|4|1|0|1|4|0|1|1|4|0|1|0
+0|0|1|1|1|1|0|4|0|1|0|4|0|1|0|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|1|1|1|0|1|4|0|0|0|4|0|0|0|4|1|0|0|4|1|0|0
+0|1|0|1|1|0|1|4|0|1|1|4|0|0|1|4|1|0|0|4|1|0|0
+0|0|1|1|0|1|0|4|1|1|0|4|0|0|1|4|1|1|1|4|1|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|3|3|0|0|0|0|4|1|1|1|4|1|0|1|4|0|0|1|4|1|1|0
+4|3|3|0|0|0|0|4|1|1|1|4|0|1|1|4|1|1|0|4|1|0|0
+4|0|0|3|3|0|0|4|0|1|0|4|0|0|1|4|1|1|1|4|0|0|0
+4|0|0|3|3|0|0|4|4|4|4|4|4|4|4|4|4|4|4|4|1|4|4
+4|0|0|0|0|3|3|4|1|1|1|4|0|0|0|4|0|1|0|1|1|1|0
+4|0|0|0|0|3|3|4|1|1|1|4|1|0|0|4|1|1|1|1|1|0|0
+4|4|4|4|4|4|4|4|0|0|0|4|0|0|0|4|0|0|0|4|0|0|0
+
+# Expected Output ASCII representation:
+
+3|0|0|4|0|0|1|4|1|1|1|4|1|1|0|4|1|0|0|4|0|0|0
+1|3|0|4|1|0|0|4|1|0|0|4|0|1|0|4|1|1|0|4|0|1|1
+0|1|3|4|1|0|0|4|1|0|1|4|0|1|0|4|0|0|0|4|1|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|0|0|4|3|1|1|4|0|0|1|4|3|0|0|4|1|0|0|4|1|0|0
+1|0|0|4|1|3|0|4|0|1|0|4|1|3|0|4|1|0|1|4|0|1|0
+1|1|0|4|0|1|3|4|1|0|0|4|0|0|3|4|1|0|1|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+0|1|1|4|1|1|0|4|1|1|0|4|0|1|0|4|1|1|0|4|0|1|0
+1|1|0|4|0|0|1|4|0|0|1|4|1|0|1|4|0|1|1|4|0|1|0
+0|1|1|4|1|1|0|4|0|1|0|4|0|1|0|4|0|0|0|4|0|1|0
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+1|1|1|4|1|0|1|4|0|0|0|4|0|0|0|4|1|0|0|4|1|0|0
+1|0|1|4|1|0|1|4|0|1|1|4|0|0|1|4|1|0|0|4|1|0|0
+0|1|1|4|0|1|0|4|1|1|0|4|0|0|1|4|1|1|1|4|1|0|1
+4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|3|3|0|0|0|0|4|1|1|1|4|3|0|1|4|0|0|1|4|0|1|1
+4|3|3|0|0|0|0|4|1|1|1|4|0|3|1|4|1|1|0|4|1|0|0
+4|0|0|3|3|0|0|4|0|1|0|4|0|0|3|4|1|1|1|4|0|0|0
+4|0|0|3|3|0|0|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4
+4|0|0|0|0|3|3|4|0|1|1|4|0|0|0|4|0|1|0|4|0|1|0
+4|0|0|0|0|3|3|4|1|0|1|4|0|0|0|4|1|0|1|4|1|1|1
+4|4|4|4|4|4|4|4|1|1|0|4|1|0|0|4|0|1|0|4|1|1|0
+
+# Color changes between transformed output and expected output ASCII representation:
+
+0 -> 3|  --  |  --  |  --  |  --  |  --  |0 -> 1|  --  |0 -> 1|0 -> 1|0 -> 1|  --  |0 -> 1|0 -> 1|  --  |  --  |0 -> 1|  --  |  --  |  --  |  --  |  --  |  --  
+0 -> 1|1 -> 3|  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |1 -> 0|1 -> 0|  --  |1 -> 0|  --  |  --  |  --  |  --  |0 -> 1|  --  |  --  |1 -> 0|  --  |0 -> 1
+  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|1 -> 0|  --  |1 -> 4|  --  |0 -> 1|  --  
+  --  |  --  |1 -> 4|1 -> 4|  --  |  --  |  --  |  --  |1 -> 4|  --  |  --  |  --  |  --  |1 -> 4|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+0 -> 1|1 -> 0|  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+0 -> 1|1 -> 0|  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+0 -> 1|  --  |1 -> 0|  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |0 -> 1|  --  |1 -> 4|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+0 -> 1|  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |0 -> 1|  --  |1 -> 4|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+0 -> 1|  --  |  --  |1 -> 4|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+0 -> 1|1 -> 0|0 -> 1|1 -> 4|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |0 -> 1|  --  |1 -> 4|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|0 -> 1
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |0 -> 1
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 3|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 4|  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 4|1 -> 0|  --  |  --  
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |1 -> 0|  --  |  --  |1 -> 0|  --  |  --  |  --  |  --  |1 -> 0|  --  |1 -> 4|  --  |0 -> 1|0 -> 1
+  --  |  --  |  --  |  --  |  --  |  --  |  --  |  --  |0 -> 1|0 -> 1|  --  |  --  |0 -> 1|  --  |  --  |  --  |  --  |0 -> 1|  --  |  --  |0 -> 1|0 -> 1|  --  
+
+
+                

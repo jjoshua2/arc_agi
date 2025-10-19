@@ -1,0 +1,9 @@
+{
+  "challenge_id": "Copy7",
+  "best1": {
+    "train_mismatches": 15,
+    "test_mismatches": 18,
+    "combined_mismatches": 33,
+    "used_test": true
+  }
+}

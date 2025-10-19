@@ -1,0 +1,10 @@
+{
+  "challenge_id": "InsideOutside10",
+  "fallback_library": true,
+  "library_selection": {
+    "primitive_id": "2678",
+    "num_train_correct": 1.0,
+    "avg_train_accuracy": 0.9756944444444444
+  },
+  "note": "no_llm_attempts_recorded_this_round"
+}

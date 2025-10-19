@@ -1,0 +1,10 @@
+{
+  "challenge_id": "TopBottom2DMinimal",
+  "fallback_library": true,
+  "library_selection": {
+    "primitive_id": "1085",
+    "num_train_correct": 2.0,
+    "avg_train_accuracy": 0.9444444444444445
+  },
+  "note": "no_llm_attempts_recorded_this_round"
+}
