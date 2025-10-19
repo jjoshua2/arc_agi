@@ -332,10 +332,15 @@ async def main() -> None:
     print(f"library size: {len(library.primitives)}")
     logfire.debug(f"library size: {len(library.primitives)}")
     
+    # Fast sweep flag
+    FAST_SWEEP = os.environ.get("ARC_FAST_SWEEP", "1") == "1"
+    
     # Initialize global transform pool if using fast sweep (library has primitives)
-    if library and library.primitives and os.environ.get("ARC_FAST_SWEEP", "1") == "1":
+    if FAST_SWEEP and library and library.primitives:
         from src.transform_pool import initialize_global_pool
         initialize_global_pool(library)
+        # Disable extra scoring processes to avoid CPU contention
+        os.environ.setdefault("SUBMISSION_SCORE_PROCESS", "0")
 
     solved_challenges = set()
     # Dictionary to store primitive lpn scores for each challenge (scores don't change across runs)
@@ -400,8 +405,8 @@ async def main() -> None:
     def _get_challenge_executor() -> ProcessPoolExecutor:
         nonlocal _challenge_executor
         if _challenge_executor is None:
-            # Keep primitive evaluation to 5 processes for optimal CPU usage
-            max_workers = 5
+            # When fast sweep is enabled, run a single challenge process at a time
+            max_workers = 1 if FAST_SWEEP else 5
             _challenge_executor = ProcessPoolExecutor(max_workers=max_workers)
         return _challenge_executor
     
@@ -593,20 +598,21 @@ async def main() -> None:
             logfire.debug("WARNING: invalid SUBMISSION_ATTEMPTS; ignoring")
 
     # Streaming approach: maintain constant number of active challenges
-    # Round 1: Stream 5 challenges continuously (optimal for 4-core CPU)
-    # Round 2+: Process all at once for maximum parallelism  
+    # Defaults favor single active challenge when fast sweep is on
     bs_env = os.environ.get("SUBMISSION_BATCH_SIZE")
     try:
-        round1_stream_size = max(1, int(bs_env)) if bs_env else 5  # Always keep 5 active
+        default_round1 = 1 if FAST_SWEEP else 5
+        round1_stream_size = max(1, int(bs_env)) if bs_env else default_round1
     except Exception:
-        round1_stream_size = 5
+        round1_stream_size = 1 if FAST_SWEEP else 5
     
-    # Larger batch size for rounds 2+ (can be overridden)
+    # Batch size for rounds 2+
     large_bs_env = os.environ.get("SUBMISSION_LARGE_BATCH_SIZE")
     try:
-        later_rounds_batch_size = max(round1_stream_size, int(large_bs_env)) if large_bs_env else len(eval_ids_to_test)
+        default_later = 1 if FAST_SWEEP else len(eval_ids_to_test)
+        later_rounds_batch_size = max(round1_stream_size, int(large_bs_env)) if large_bs_env else default_later
     except Exception:
-        later_rounds_batch_size = len(eval_ids_to_test)  # Process all at once in later rounds
+        later_rounds_batch_size = 1 if FAST_SWEEP else len(eval_ids_to_test)
     
     print(f"Using streaming approach: round 1 = {round1_stream_size} active continuously, round 2+ = {later_rounds_batch_size} all at once")
     logfire.debug(f"Streaming approach: round 1 = {round1_stream_size} active continuously, round 2+ = {later_rounds_batch_size} all at once")
