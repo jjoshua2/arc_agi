@@ -139,6 +139,16 @@ def _evaluate_primitive_in_worker(job: EvalJob) -> PrimitiveResult:
             eval_time_ms=eval_time_ms
         )
 
+
+def _evaluate_primitives_chunk_in_worker(primitive_ids, train_inputs, train_outputs, timeout_sec):
+    """Evaluate a chunk of primitive IDs inside a single worker call"""
+    results: list[PrimitiveResult] = []
+    for pid in primitive_ids:
+        job = EvalJob(primitive_id=pid, train_inputs=train_inputs, train_outputs=train_outputs, timeout_sec=timeout_sec)
+        res = _evaluate_primitive_in_worker(job)
+        results.append(res)
+    return results
+
 def _run_transform_inline(code: str, grid_inputs: List[GRID], timeout_sec: float) -> Optional[List[GRID]]:
     """Run transform function inline without subprocess"""
     try:
@@ -331,30 +341,26 @@ class FastTransformPool:
         if not self._executor:
             self.start()
             
-        # Create jobs
-        jobs = [
-            EvalJob(
-                primitive_id=pid,
-                train_inputs=train_inputs,
-                train_outputs=train_outputs,
-                timeout_sec=timeout_per_primitive
-            )
-            for pid in primitive_ids
-        ]
+        # Chunk primitives to reduce IPC/pickling overhead
+        try:
+            chunk_size = max(16, int(os.environ.get("ARC_FAST_SWEEP_CHUNK", "128")))
+        except Exception:
+            chunk_size = 128
+        chunks: List[List[str]] = [primitive_ids[i:i+chunk_size] for i in range(0, len(primitive_ids), chunk_size)]
         
-        # Submit all jobs with timing
+        # Submit chunk jobs with timing
         submit_start = time.perf_counter()
-        future_to_job = {
-            self._executor.submit(_evaluate_primitive_in_worker, job): job 
-            for job in jobs
+        future_to_chunk: Dict[Any, List[str]] = {
+            self._executor.submit(_evaluate_primitives_chunk_in_worker, chunk, train_inputs, train_outputs, timeout_per_primitive): chunk
+            for chunk in chunks
         }
         submit_time = time.perf_counter() - submit_start
-        print(f"Submitted {len(jobs)} jobs to pool in {submit_time:.3f}s")
+        print(f"Submitted {len(chunks)} chunk-jobs to pool in {submit_time:.3f}s (chunk_size={chunk_size})")
         
         # Collect results with progress tracking and timeout + stall watchdog
-        results = []
+        results: List[PrimitiveResult] = []
         completed_count = 0
-        total_jobs = len(jobs)
+        total_jobs = len(primitive_ids)
         
         # Add overall timeout to prevent infinite hangs
         import concurrent.futures
@@ -368,13 +374,13 @@ class FastTransformPool:
         
         try:
             while completed_count < total_jobs:
-                made_progress = False
                 try:
-                    for future in as_completed(list(future_to_job.keys()), timeout=5):
+                    for future in as_completed(list(future_to_chunk.keys()), timeout=5):
                         try:
-                            result = future.result()  # Let primitives run (should be fast ~100-300ms)
-                            completed_count += 1
-                            made_progress = True
+                            chunk_results = future.result()
+                            # Aggregate
+                            results.extend(chunk_results)
+                            completed_count += len(chunk_results)
                             last_progress = time.perf_counter()
                             
                             # Progress logging at 50% and 100% only
@@ -383,21 +389,20 @@ class FastTransformPool:
                             if completed_count == halfway or completed_count == total_jobs:
                                 print(f"Progress: {completed_count}/{total_jobs} primitives evaluated ({progress_pct:.1f}%)")
                             
-                            # Check for worker-killing errors and record for blocklist
-                            if not result.success and result.error_msg and result.error_msg.startswith("WORKER_KILLER:"):
-                                from src.primitive_blocklist import get_primitive_blocklist
-                                blocklist = get_primitive_blocklist()
-                                error_parts = result.error_msg.split(":", 2)
-                                error_type = error_parts[1] if len(error_parts) > 1 else "crash"
-                                blocklist.record_failure(result.primitive_id, error_type.lower())
-                                print(f"⚠️  Blocked primitive {result.primitive_id} due to {error_type}")
+                            # Blocklist worker-killing errors
+                            for r in chunk_results:
+                                if not r.success and r.error_msg and r.error_msg.startswith("WORKER_KILLER:"):
+                                    from src.primitive_blocklist import get_primitive_blocklist
+                                    blocklist = get_primitive_blocklist()
+                                    error_parts = r.error_msg.split(":", 2)
+                                    error_type = error_parts[1] if len(error_parts) > 1 else "crash"
+                                    blocklist.record_failure(r.primitive_id, error_type.lower())
+                                    print(f"⚠️  Blocked primitive {r.primitive_id} due to {error_type}")
                             
-                            results.append(result)
                             # Remove processed future
-                            future_to_job.pop(future, None)
-                            
+                            future_to_chunk.pop(future, None)
                         except Exception as e:
-                            job = future_to_job.get(future)
+                            chunk = future_to_chunk.get(future, [])
                             # Check if this is a worker crash that killed the pool
                             if "process pool" in str(e).lower() or "terminated abruptly" in str(e).lower():
                                 print(f"Worker pool crashed, attempting to recreate...")
@@ -411,43 +416,37 @@ class FastTransformPool:
                                     print(f"Failed to recreate worker pool: {restart_e}")
                                     raise e  # Original error
                             
-                            # Record crashes for blocklist
-                            if job is not None:
-                                print(f"🚨 Worker crashed during primitive {job.primitive_id}: {e}")
-                                from src.primitive_blocklist import get_primitive_blocklist
-                                blocklist = get_primitive_blocklist()
-                                blocklist.record_failure(job.primitive_id, "worker_crash")
-                                
+                            # Record crashes for all pids in chunk
+                            for pid in chunk:
+                                print(f"🚨 Worker crashed during primitive {pid}: {e}")
                                 results.append(PrimitiveResult(
-                                    primitive_id=job.primitive_id,
+                                    primitive_id=pid,
                                     num_correct=0.0,
                                     accuracy_score=0.0,
                                     success=False,
                                     error_msg=f"Worker exception: {str(e)[:100]}"
                                 ))
-                                future_to_job.pop(future, None)
+                            future_to_chunk.pop(future, None)
                 except concurrent.futures.TimeoutError:
                     # No completions in the last short window; check for stall
-                    if (time.perf_counter() - last_progress) > stall_secs and future_to_job:
-                        print(f"⏱️  Stall detected (>{stall_secs}s without progress). Restarting pool and resubmitting {len(future_to_job)} remaining jobs...")
-                        # Collect remaining jobs
-                        remaining_jobs = [job for fut, job in list(future_to_job.items()) if not fut.done()]
-                        # Shutdown and restart pool
+                    if (time.perf_counter() - last_progress) > stall_secs and future_to_chunk:
+                        print(f"⏱️  Stall detected (>{stall_secs}s without progress). Restarting pool and resubmitting remaining chunks...")
+                        remaining_chunks = [chunk for fut, chunk in list(future_to_chunk.items()) if not fut.done()]
+                        # Restart pool
                         try:
                             self.shutdown()
                         except Exception:
                             pass
                         self.start()
-                        # Resubmit remaining jobs
-                        future_to_job = {
-                            self._executor.submit(_evaluate_primitive_in_worker, job): job
-                            for job in remaining_jobs
+                        # Resubmit
+                        future_to_chunk = {
+                            self._executor.submit(_evaluate_primitives_chunk_in_worker, chunk, train_inputs, train_outputs, timeout_per_primitive): chunk
+                            for chunk in remaining_chunks
                         }
                         last_progress = time.perf_counter()
                         continue
                 
-                # If we made no progress but still have futures, loop continues and TimeoutError will handle stall
-                if not future_to_job:
+                if not future_to_chunk:
                     break
         
         except concurrent.futures.TimeoutError:
@@ -455,17 +454,17 @@ class FastTransformPool:
             print("This suggests workers are hanging or dying. Cancelling remaining futures...")
             
             # Cancel remaining futures and collect what we have
-            for future in future_to_job:
+            for future, chunk in future_to_chunk.items():
                 if not future.done():
                     future.cancel()
-                    job = future_to_job[future]
-                    results.append(PrimitiveResult(
-                        primitive_id=job.primitive_id,
-                        num_correct=0.0,
-                        accuracy_score=0.0,
-                        success=False,
-                        error_msg="Evaluation timeout - worker may have hung"
-                    ))
+                    for pid in chunk:
+                        results.append(PrimitiveResult(
+                            primitive_id=pid,
+                            num_correct=0.0,
+                            accuracy_score=0.0,
+                            success=False,
+                            error_msg="Evaluation timeout - worker may have hung"
+                        ))
             
             print(f"Returning {len(results)} results (some may be timeouts)")
         
