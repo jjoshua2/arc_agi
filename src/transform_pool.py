@@ -434,27 +434,34 @@ class FastTransformPool:
         
         return results
 
+import threading
+
 # Global pool instance (singleton pattern for notebook compatibility)
 _global_pool: Optional[FastTransformPool] = None
+_pool_lock = threading.Lock()  # Thread-safe pool creation
 
 def get_global_transform_pool(library=None) -> FastTransformPool:
-    """Get or create global transform pool"""
+    """Get or create global transform pool (thread-safe)"""
     global _global_pool
     
-    if _global_pool is None:
-        if library is not None:
-            print(f"🏗️  Creating NEW global transform pool (first time)")
-            _global_pool = FastTransformPool(library)
+    with _pool_lock:
+        if _global_pool is None:
+            if library is not None:
+                print(f"🏗️  Creating NEW global transform pool (first time)")
+                _global_pool = FastTransformPool(library)
+                _global_pool.start()
+            else:
+                print("⚠️  Cannot create pool: no library provided")
+                return None
+        elif not _global_pool._executor:
+            # Pool exists but is shutdown, restart it
+            print("🔄 Restarting existing transform pool...")
             _global_pool.start()
         else:
-            print("⚠️  Cannot create pool: no library provided")
-            return None
-    elif not _global_pool._executor:
-        # Pool exists but is shutdown, restart it
-        print("🔄 Restarting existing transform pool...")
-        _global_pool.start()
-    else:
-        print(f"♻️  Reusing existing transform pool (workers should be alive)")
+            # Only show reuse message occasionally to reduce noise
+            import random
+            if random.random() < 0.1:  # 10% chance
+                print(f"♻️  Reusing existing transform pool (workers should be alive)")
     
     return _global_pool
 
