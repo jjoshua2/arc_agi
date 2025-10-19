@@ -439,7 +439,11 @@ class FastTransformPool:
         print(f"Starting evaluation of {total_jobs} primitives (timeout: {timeout_seconds}s)")
         
         # Stall watchdog: if no completions for N seconds, restart pool and re-submit remaining
-        stall_secs = int(os.environ.get("ARC_FAST_SWEEP_STALL_SECS", "30"))
+        try:
+            stall_env = os.environ.get("ARC_FAST_SWEEP_STALL_SECS")
+            stall_secs = int(stall_env) if stall_env else max(30, min(120, int(chunk_size * 0.4)))
+        except Exception:
+            stall_secs = max(30, min(120, int(chunk_size * 0.4)))
         last_progress = time.perf_counter()
         
         try:
