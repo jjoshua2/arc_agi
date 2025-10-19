@@ -34,14 +34,14 @@ def solve_challenge_in_process(challenge_id: str, challenge_dict: dict, library_
     # Import after setting env vars to avoid JAX issues
     from src.logic import solve_challenge_with_accuracy
     from src.trees.experiments import grokfast_dreamcoder_tree
-    from src.models import Library, Primitive, Challenge, TrainingExample, TestExample
+    from src.models import Library, Primitive, Challenge, Example
     
     try:
         # Reconstruct objects from serialized data
         challenge = Challenge(
             id=challenge_dict['id'],
-            train=[TrainingExample(input=t['input'], output=t['output']) for t in challenge_dict['train']],
-            test=[TestExample(input=t['input'], output=t.get('output')) for t in challenge_dict['test']]
+            train=[Example(input=t['input'], output=t['output']) for t in challenge_dict['train']],
+            test=[Example(input=t['input'], output=t.get('output')) for t in challenge_dict['test']]
         )
         
         library = Library(primitives=[
