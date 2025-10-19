@@ -610,8 +610,8 @@ async def _two_pass_select_primitives_async(
     if use_fast_sweep:
         try:
             return await _fast_two_pass_select_primitives_async(library, challenge, k_top, challenge_primitive_scores, fp_top_k, sp_batch)
-        except MemoryError as e:
-            print(f"[{challenge.id}] Fast sweep hit memory limit, falling back to original: {e}")
+        except Exception as e:
+            print(f"[{challenge.id}] Fast sweep failed, falling back to original: {e}")
             # Fall through to original implementation
         except Exception as e:
             print(f"[{challenge.id}] Fast sweep failed, falling back to original: {e}")
@@ -642,7 +642,7 @@ async def _two_pass_select_primitives_async(
     
     first_pass_time = time.perf_counter() - first_pass_start
 
-    # Identify perfect-on-first-example primitives
+    # Identify perfect-on-first primitives
     perfect_on_first: list[int] = [idx for idx, nc, acc in first_pass_scores if nc >= 1.0 and acc >= 1.0]
     
     # Early check: if any perfect-on-first, immediately test them on ALL examples
@@ -651,7 +651,8 @@ async def _two_pass_select_primitives_async(
         logfire.debug(f"[{challenge.id}] Found {len(perfect_on_first)} perfect-on-first primitives")
         perfect_candidates = [prims[idx] for idx in perfect_on_first]
         
-        # Evaluate perfect candidates on all training examples
+        # Evaluate perfect candidates on all training examples (this is effectively a short second pass)
+        second_pass_start = time.perf_counter()
         perfect_full_scores: list[tuple[int, float, float]] = []  # (idx_in_prims, num_correct, secondary_score)
         total_tr = len(challenge.train)
         
@@ -673,7 +674,8 @@ async def _two_pass_select_primitives_async(
         # Check if any achieved perfect on ALL training examples
         perfect_all = [(idx, nc, sc) for idx, nc, sc in perfect_full_scores if nc >= float(total_tr)]
         if perfect_all:
-            print(f"[{challenge.id}] Found {len(perfect_all)} primitives that solve all training examples!")
+            second_pass_time = time.perf_counter() - second_pass_start
+            print(f"[{challenge.id}] First pass: {first_pass_time:.1f}s ({len(prims)} primitives), Second pass: {second_pass_time:.1f}s ({len(perfect_candidates)} candidates) (early-exit)")
             logfire.debug(f"[{challenge.id}] Early-exit: {len(perfect_all)} primitives solve all training examples")
             # Return the best perfect ones (softmax sample from them)
             scores = [nc + sc for _, nc, sc in perfect_all]
@@ -705,6 +707,7 @@ async def _two_pass_select_primitives_async(
         candidates.append(prims[idx])
     
     if not candidates:
+        print(f"[{challenge.id}] First pass: {first_pass_time:.1f}s ({len(prims)} primitives), Second pass: 0.0s (0 candidates)")
         return []
 
     # Second pass: evaluate shortlisted candidates across all training examples
@@ -811,6 +814,8 @@ async def _fast_two_pass_select_primitives_async(
     
     if not filtered_primitives:
         print(f"[{challenge.id}] Fast sweep: no primitives after shape filter")
+        total_time = time.perf_counter() - start_time
+        print(f"[{challenge.id}] Fast sweep: shape={shape_filter_time:.1f}s, first=0.0s, second=0.0s, total={total_time:.1f}s")
         return []
     
     # Step 3: First pass using worker pool (single example)
@@ -886,6 +891,7 @@ async def _fast_two_pass_select_primitives_async(
         print(f"[{challenge.id}] Fast sweep: found {len(perfect_indices)} perfect-on-first primitives")
         # Test perfect candidates on all examples using second pass logic
         perfect_candidates = [filtered_primitives[i] for i in perfect_indices]
+        second_pass_start = time.perf_counter()
         perfect_results = await _evaluate_candidates_full_async(perfect_candidates, challenge, challenge_primitive_scores)
         
         # Check if any solve all examples
@@ -893,7 +899,10 @@ async def _fast_two_pass_select_primitives_async(
         perfect_all = [(i, nc, sc) for i, (nc, sc) in enumerate(perfect_results) if nc >= total_examples]
         
         if perfect_all:
+            second_pass_time = time.perf_counter() - second_pass_start
+            total_time = time.perf_counter() - start_time
             print(f"[{challenge.id}] Fast sweep: {len(perfect_all)} primitives solve all examples!")
+            print(f"[{challenge.id}] Fast sweep: shape={shape_filter_time:.1f}s, first={first_pass_time:.1f}s, second={second_pass_time:.1f}s, total={total_time:.1f}s")
             # Return best perfect ones
             scores = [nc + sc for _, nc, sc in perfect_all]
             scores_arr = np.array(scores)
@@ -908,6 +917,8 @@ async def _fast_two_pass_select_primitives_async(
     top_candidates = [filtered_primitives[i] for i in top_indices]
     
     if not top_candidates:
+        total_time = time.perf_counter() - start_time
+        print(f"[{challenge.id}] Fast sweep: shape={shape_filter_time:.1f}s, first={first_pass_time:.1f}s, second=0.0s, total={total_time:.1f}s")
         return []
     
     # Second pass: evaluate top candidates on all examples
