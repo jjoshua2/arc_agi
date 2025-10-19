@@ -537,7 +537,12 @@ async def get_next_message_xai(
             
             message = await chat.sample()
 
-            print(f"[{request_id}] message: {message.content}")
+            # Only show message content in verbose mode
+            verbose_mode = os.environ.get("SUBMISSION_VERBOSE", "0") == "1"
+            if verbose_mode:
+                print(f"[{request_id}] message: {message.content}")
+            else:
+                print(f"[{request_id}] received message ({len(message.content)} chars)")
             logfire.debug(f"[{request_id}] message: {message.content}")
             took_ms = (time.time() - start) * 1000
             cached_tokens = message.usage.cached_prompt_text_tokens

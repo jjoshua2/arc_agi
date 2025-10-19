@@ -51,6 +51,17 @@ def solve_challenge_in_process(challenge_id: str, challenge_dict: dict, library_
         
         async def _async_solve():
             try:
+                # Apply attempts override if provided
+                attempts_env = os.environ.get("SUBMISSION_ATTEMPTS")
+                if attempts_env:
+                    try:
+                        attempts_override = max(1, int(attempts_env))
+                        from src.trees.experiments import grokfast_dreamcoder_tree as _tree_ref
+                        for node in _tree_ref:
+                            node.attempts = attempts_override
+                    except Exception:
+                        pass  # Use default attempts if override fails
+                
                 total_cost = [0.0]  # Mutable list for cost tracking
                 solutions_and_accuracies = await solve_challenge_with_accuracy(
                     challenge=challenge,
@@ -647,9 +658,12 @@ async def main() -> None:
                         'SUBMISSION_TWO_PASS_ENABLED': os.environ.get('SUBMISSION_TWO_PASS_ENABLED', '1'),
                         'SUBMISSION_FIRST_PASS_TOP_K': os.environ.get('SUBMISSION_FIRST_PASS_TOP_K', '50'),
                         'SUBMISSION_TRANSFORM_TIMEOUT': os.environ.get('SUBMISSION_TRANSFORM_TIMEOUT', '5'),
+                        'SUBMISSION_VERBOSE': os.environ.get('SUBMISSION_VERBOSE', '0'),
+                        'SUBMISSION_ATTEMPTS': os.environ.get('SUBMISSION_ATTEMPTS', ''),  # Pass attempts override
                         'OPENAI_API_KEY': os.environ.get('OPENAI_API_KEY'),
                         'ANTHROPIC_API_KEY': os.environ.get('ANTHROPIC_API_KEY'),
-                        'LOGFIRE_TOKEN': os.environ.get('LOGFIRE_TOKEN')
+                        'LOGFIRE_TOKEN': os.environ.get('LOGFIRE_TOKEN'),
+                        'XAI_API_KEY': os.environ.get('XAI_API_KEY')
                     }
                     
                     # Execute in separate process
