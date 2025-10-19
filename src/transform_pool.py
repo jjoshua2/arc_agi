@@ -12,6 +12,11 @@ from typing import Dict, List, Tuple, Any, Optional
 from dataclasses import dataclass
 from collections import deque
 import numpy as np
+# Best-effort POSIX timers for per-primitive timeouts (Linux Kaggle supported)
+try:
+    import signal as _signal
+except Exception:
+    _signal = None
 
 from src.models import GRID
 
@@ -173,7 +178,7 @@ def _evaluate_primitives_chunk_in_worker(primitive_ids, train_inputs, train_outp
     return results
 
 def _run_transform_inline(code: str, grid_inputs: List[GRID], timeout_sec: float) -> Optional[List[GRID]]:
-    """Run transform function inline without subprocess"""
+    """Run transform function inline without subprocess, with per-primitive timeout"""
     try:
         # Defensive programming: limit code length to prevent memory issues
         if len(code) > 50000:  # 50KB limit
@@ -200,15 +205,19 @@ def _run_transform_inline(code: str, grid_inputs: List[GRID], timeout_sec: float
             'Optional': Optional,
         }
         
-        # Execute the code to define transform function with timeout simulation
+        # Execute the code to define transform function with timeout
         try:
+            if _signal and hasattr(_signal, 'setitimer'):
+                _signal.signal(_signal.SIGALRM, lambda s, f: (_ for _ in ()).throw(TimeoutError("exec timeout")))
+                _signal.setitimer(_signal.ITIMER_REAL, max(0.1, timeout_sec))
             exec(code, exec_globals)
-        except (MemoryError, RecursionError, SystemError) as e:
-            # These can crash the worker, return None instead
+        except (TimeoutError, MemoryError, RecursionError, SystemError):
             return None
         except Exception:
-            # Other execution errors
             return None
+        finally:
+            if _signal and hasattr(_signal, 'setitimer'):
+                _signal.setitimer(_signal.ITIMER_REAL, 0.0)
             
         transform_func = exec_globals.get('transform')
         
@@ -222,8 +231,13 @@ def _run_transform_inline(code: str, grid_inputs: List[GRID], timeout_sec: float
                 # Basic input validation
                 if not _is_valid_grid(grid_input):
                     return None
-                    
+                # Per-call timeout
+                if _signal and hasattr(_signal, 'setitimer'):
+                    _signal.setitimer(_signal.ITIMER_REAL, max(0.1, timeout_sec))
                 result = transform_func(grid_input)
+                # Disable timer after successful call
+                if _signal and hasattr(_signal, 'setitimer'):
+                    _signal.setitimer(_signal.ITIMER_REAL, 0.0)
                 
                 # Validate result
                 if not _is_valid_grid(result):
@@ -234,6 +248,11 @@ def _run_transform_inline(code: str, grid_inputs: List[GRID], timeout_sec: float
                     return None
                     
                 results.append(result)
+            except TimeoutError:
+                # Timed out on this input; treat as failure for the whole primitive
+                if _signal and hasattr(_signal, 'setitimer'):
+                    _signal.setitimer(_signal.ITIMER_REAL, 0.0)
+                return None
             except (MemoryError, RecursionError, SystemError):
                 # Worker-killing errors
                 return None
@@ -418,9 +437,9 @@ class FastTransformPool:
 
         # Chunk primitives to reduce IPC/pickling overhead
         try:
-            chunk_size = max(16, int(os.environ.get("ARC_FAST_SWEEP_CHUNK", "128")))
+            chunk_size = max(16, int(os.environ.get("ARC_FAST_SWEEP_CHUNK", "64")))
         except Exception:
-            chunk_size = 128
+            chunk_size = 64
         chunks: List[List[str]] = [primitive_ids[i:i+chunk_size] for i in range(0, len(primitive_ids), chunk_size)]
         
         # Stream chunk jobs to avoid synchronous submit overhead
