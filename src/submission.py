@@ -379,8 +379,8 @@ async def main() -> None:
     def _get_challenge_executor() -> ProcessPoolExecutor:
         nonlocal _challenge_executor
         if _challenge_executor is None:
-            # Use 4-5 processes for challenge-level parallelism
-            max_workers = max(4, round1_batch_size)
+            # Keep primitive evaluation to 5 processes, but allow more challenges in pipeline
+            max_workers = min(5, max(4, round1_batch_size))
             _challenge_executor = ProcessPoolExecutor(max_workers=max_workers)
         return _challenge_executor
     
@@ -567,9 +567,9 @@ async def main() -> None:
     # Round 2+: Large batches (all at once) for maximum parallelism
     bs_env = os.environ.get("SUBMISSION_BATCH_SIZE")
     try:
-        round1_batch_size = max(1, int(bs_env)) if bs_env else 5  # Small batches for round 1
+        round1_batch_size = max(1, int(bs_env)) if bs_env else 20  # Increased from 5 to keep pipeline full
     except Exception:
-        round1_batch_size = 5
+        round1_batch_size = 20
     
     # Larger batch size for rounds 2+ (can be overridden)
     large_bs_env = os.environ.get("SUBMISSION_LARGE_BATCH_SIZE")
