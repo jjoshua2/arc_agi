@@ -259,10 +259,16 @@ class FastTransformPool:
             max_tasks_per_child: Restart workers after N tasks
         """
         if num_workers is None:
-            num_workers = min(4, os.cpu_count() or 4)  # Cap at 4 for Kaggle
+            # Configurable workers with memory-conscious defaults
+            try:
+                max_workers = int(os.environ.get("ARC_FAST_SWEEP_WORKERS", "3"))
+                num_workers = min(max_workers, os.cpu_count() or 4)
+            except:
+                num_workers = 2  # Very conservative default for memory
             
         self.num_workers = num_workers
-        self.max_tasks_per_child = max_tasks_per_child
+        # Reduce tasks per child to prevent memory accumulation
+        self.max_tasks_per_child = min(max_tasks_per_child, 100)
         
         # Serialize library for workers
         self._library_data = pickle.dumps(library)
@@ -333,7 +339,7 @@ class FastTransformPool:
         results = []
         for future in as_completed(future_to_job):
             try:
-                result = future.result()
+                result = future.result(timeout=30)  # Add timeout to prevent hanging
                 
                 # Check for worker-killing errors and record for blocklist
                 if not result.success and result.error_msg and result.error_msg.startswith("WORKER_KILLER:"):
@@ -344,6 +350,17 @@ class FastTransformPool:
                     blocklist.record_failure(result.primitive_id, error_type.lower())
                 
                 results.append(result)
+                
+            except TimeoutError:
+                job = future_to_job[future]
+                print(f"Primitive {job.primitive_id} timed out after 30s")
+                results.append(PrimitiveResult(
+                    primitive_id=job.primitive_id,
+                    num_correct=0.0,
+                    accuracy_score=0.0,
+                    success=False,
+                    error_msg="Evaluation timeout"
+                ))
             except Exception as e:
                 job = future_to_job[future]
                 # Check if this is a worker crash that killed the pool

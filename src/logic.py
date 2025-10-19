@@ -589,12 +589,30 @@ async def _two_pass_select_primitives_async(
     if not library or not library.primitives:
         return []
 
-    # Check if fast sweep is enabled
+    # Check if fast sweep is enabled and memory allows it
     use_fast_sweep = os.environ.get("ARC_FAST_SWEEP", "1") == "1"
+    
+    # Memory debugging - log usage but don't disable (30GB should be plenty)
+    try:
+        import psutil
+        memory_info = psutil.virtual_memory()
+        available_gb = memory_info.available / (1024 ** 3)
+        used_gb = memory_info.used / (1024 ** 3)
+        print(f"[{challenge.id}] Memory: {used_gb:.1f}GB used, {available_gb:.1f}GB available")
+        
+        # Only disable if extremely low memory (shouldn't happen with 30GB)
+        if available_gb < 1.0:
+            print(f"[{challenge.id}] CRITICAL: Very low memory, disabling fast sweep")
+            use_fast_sweep = False
+    except (ImportError, Exception):
+        pass  # Continue if psutil not available
     
     if use_fast_sweep:
         try:
             return await _fast_two_pass_select_primitives_async(library, challenge, k_top, challenge_primitive_scores, fp_top_k, sp_batch)
+        except MemoryError as e:
+            print(f"[{challenge.id}] Fast sweep hit memory limit, falling back to original: {e}")
+            # Fall through to original implementation
         except Exception as e:
             print(f"[{challenge.id}] Fast sweep failed, falling back to original: {e}")
             # Fall through to original implementation
@@ -811,12 +829,42 @@ async def _fast_two_pass_select_primitives_async(
     # Get primitive IDs
     primitive_ids = [getattr(p, 'id', f'prim_{i}') for i, p in enumerate(filtered_primitives)]
     
-    # Evaluate in batches to control memory
-    batch_size = 100
+    # Evaluate in smaller batches to control memory usage on Kaggle
+    # Configurable batch size for memory management
+    try:
+        batch_size = max(1, int(os.environ.get("ARC_FAST_SWEEP_BATCH_SIZE", "10")))
+    except:
+        batch_size = 25  # Safe default
+    
     first_pass_results = []
     
     for i in range(0, len(primitive_ids), batch_size):
         batch_ids = primitive_ids[i:i+batch_size]
+        
+        # Memory management: check usage and adapt if needed
+        try:
+            import psutil
+            memory_mb = psutil.Process().memory_info().rss / 1024 / 1024
+            # Configurable memory threshold
+            try:
+                memory_threshold_mb = int(os.environ.get("ARC_MEMORY_THRESHOLD_MB", "8000"))
+            except:
+                memory_threshold_mb = 8000
+            
+            if memory_mb > memory_threshold_mb:
+                print(f"[{challenge.id}] High memory usage: {memory_mb:.1f}MB, processing smaller batches")
+                # Process items individually to reduce memory pressure
+                for single_id in batch_ids:
+                    single_results = pool.evaluate_primitives_batch(
+                        primitive_ids=[single_id],
+                        train_inputs=train_inputs,
+                        train_outputs=train_outputs,
+                        timeout_per_primitive=5.0
+                    )
+                    first_pass_results.extend(single_results)
+                continue  # Skip normal batch processing
+        except (ImportError, Exception):
+            pass  # Continue normally if psutil unavailable or fails
         
         # Retry logic for pool recreation
         max_retries = 2
@@ -906,6 +954,13 @@ async def _fast_two_pass_select_primitives_async(
     
     total_time = time.perf_counter() - start_time
     print(f"[{challenge.id}] Fast sweep: blocklist={blocklist_filter_time:.3f}s, shape={shape_filter_time:.3f}s, first={first_pass_time:.1f}s, second={second_pass_time:.1f}s, total={total_time:.1f}s")
+    
+    # Explicit cleanup to prevent memory leaks
+    try:
+        import gc
+        gc.collect()  # Force garbage collection
+    except:
+        pass
     
     return [top_candidates[pos] for pos in selected_positions]
 
