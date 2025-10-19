@@ -351,7 +351,7 @@ class FastTransformPool:
         submit_time = time.perf_counter() - submit_start
         print(f"Submitted {len(jobs)} jobs to pool in {submit_time:.3f}s")
         
-        # Collect results with progress tracking and timeout
+        # Collect results with progress tracking and timeout + stall watchdog
         results = []
         completed_count = 0
         total_jobs = len(jobs)
@@ -362,57 +362,93 @@ class FastTransformPool:
         timeout_seconds = max(120, min(300, int(total_jobs * 0.2)))  # 0.2s per primitive, min 120s, max 300s
         print(f"Starting evaluation of {total_jobs} primitives (timeout: {timeout_seconds}s)")
         
+        # Stall watchdog: if no completions for N seconds, restart pool and re-submit remaining
+        stall_secs = int(os.environ.get("ARC_FAST_SWEEP_STALL_SECS", "30"))
+        last_progress = time.perf_counter()
+        
         try:
-            for future in as_completed(future_to_job, timeout=timeout_seconds):
+            while completed_count < total_jobs:
+                made_progress = False
                 try:
-                    result = future.result()  # Let primitives run (should be fast ~100-300ms)
-                    completed_count += 1
-                    
-                    # Progress logging at 50% and 100% only
-                    progress_pct = completed_count / total_jobs * 100
-                    halfway = total_jobs // 2
-                    if completed_count == halfway or completed_count == total_jobs:
-                        print(f"Progress: {completed_count}/{total_jobs} primitives evaluated ({progress_pct:.1f}%)")
-                    
-                    # Check for worker-killing errors and record for blocklist
-                    if not result.success and result.error_msg and result.error_msg.startswith("WORKER_KILLER:"):
-                        from src.primitive_blocklist import get_primitive_blocklist
-                        blocklist = get_primitive_blocklist()
-                        error_parts = result.error_msg.split(":", 2)
-                        error_type = error_parts[1] if len(error_parts) > 1 else "crash"
-                        blocklist.record_failure(result.primitive_id, error_type.lower())
-                        print(f"⚠️  Blocked primitive {result.primitive_id} due to {error_type}")
-                    
-                    results.append(result)
-                    
-                except Exception as e:
-                    job = future_to_job[future]
-                    # Check if this is a worker crash that killed the pool
-                    if "process pool" in str(e).lower() or "terminated abruptly" in str(e).lower():
-                        print(f"Worker pool crashed, attempting to recreate...")
+                    for future in as_completed(list(future_to_job.keys()), timeout=5):
+                        try:
+                            result = future.result()  # Let primitives run (should be fast ~100-300ms)
+                            completed_count += 1
+                            made_progress = True
+                            last_progress = time.perf_counter()
+                            
+                            # Progress logging at 50% and 100% only
+                            progress_pct = completed_count / total_jobs * 100
+                            halfway = total_jobs // 2
+                            if completed_count == halfway or completed_count == total_jobs:
+                                print(f"Progress: {completed_count}/{total_jobs} primitives evaluated ({progress_pct:.1f}%)")
+                            
+                            # Check for worker-killing errors and record for blocklist
+                            if not result.success and result.error_msg and result.error_msg.startswith("WORKER_KILLER:"):
+                                from src.primitive_blocklist import get_primitive_blocklist
+                                blocklist = get_primitive_blocklist()
+                                error_parts = result.error_msg.split(":", 2)
+                                error_type = error_parts[1] if len(error_parts) > 1 else "crash"
+                                blocklist.record_failure(result.primitive_id, error_type.lower())
+                                print(f"⚠️  Blocked primitive {result.primitive_id} due to {error_type}")
+                            
+                            results.append(result)
+                            # Remove processed future
+                            future_to_job.pop(future, None)
+                            
+                        except Exception as e:
+                            job = future_to_job.get(future)
+                            # Check if this is a worker crash that killed the pool
+                            if "process pool" in str(e).lower() or "terminated abruptly" in str(e).lower():
+                                print(f"Worker pool crashed, attempting to recreate...")
+                                try:
+                                    self.shutdown()
+                                    self.start()
+                                    print("Worker pool recreated successfully")
+                                    # Don't return partial results, let caller retry
+                                    raise Exception("Worker pool was recreated, please retry")
+                                except Exception as restart_e:
+                                    print(f"Failed to recreate worker pool: {restart_e}")
+                                    raise e  # Original error
+                            
+                            # Record crashes for blocklist
+                            if job is not None:
+                                print(f"🚨 Worker crashed during primitive {job.primitive_id}: {e}")
+                                from src.primitive_blocklist import get_primitive_blocklist
+                                blocklist = get_primitive_blocklist()
+                                blocklist.record_failure(job.primitive_id, "worker_crash")
+                                
+                                results.append(PrimitiveResult(
+                                    primitive_id=job.primitive_id,
+                                    num_correct=0.0,
+                                    accuracy_score=0.0,
+                                    success=False,
+                                    error_msg=f"Worker exception: {str(e)[:100]}"
+                                ))
+                                future_to_job.pop(future, None)
+                except concurrent.futures.TimeoutError:
+                    # No completions in the last short window; check for stall
+                    if (time.perf_counter() - last_progress) > stall_secs and future_to_job:
+                        print(f"⏱️  Stall detected (>{stall_secs}s without progress). Restarting pool and resubmitting {len(future_to_job)} remaining jobs...")
+                        # Collect remaining jobs
+                        remaining_jobs = [job for fut, job in list(future_to_job.items()) if not fut.done()]
+                        # Shutdown and restart pool
                         try:
                             self.shutdown()
-                            self.start()
-                            print("Worker pool recreated successfully")
-                            # Don't return partial results, let caller retry
-                            raise Exception("Worker pool was recreated, please retry")
-                        except Exception as restart_e:
-                            print(f"Failed to recreate worker pool: {restart_e}")
-                            raise e  # Original error
-                    
-                    # Record crashes for blocklist
-                    print(f"🚨 Worker crashed during primitive {job.primitive_id}: {e}")
-                    from src.primitive_blocklist import get_primitive_blocklist
-                    blocklist = get_primitive_blocklist()
-                    blocklist.record_failure(job.primitive_id, "worker_crash")
-                    
-                    results.append(PrimitiveResult(
-                        primitive_id=job.primitive_id,
-                        num_correct=0.0,
-                        accuracy_score=0.0,
-                        success=False,
-                        error_msg=f"Worker exception: {str(e)[:100]}"
-                    ))
+                        except Exception:
+                            pass
+                        self.start()
+                        # Resubmit remaining jobs
+                        future_to_job = {
+                            self._executor.submit(_evaluate_primitive_in_worker, job): job
+                            for job in remaining_jobs
+                        }
+                        last_progress = time.perf_counter()
+                        continue
+                
+                # If we made no progress but still have futures, loop continues and TimeoutError will handle stall
+                if not future_to_job:
+                    break
         
         except concurrent.futures.TimeoutError:
             print(f"❌ TIMEOUT: Only completed {completed_count}/{total_jobs} primitives in {timeout_seconds}s")
