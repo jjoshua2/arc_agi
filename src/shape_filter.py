@@ -33,6 +33,10 @@ def should_reject_primitive_by_shape(primitive_id: str, input_shapes: List[Tuple
     Returns:
         True if primitive should be rejected based on shape mismatch
     """
+    # TEMPORARILY DISABLED: Shape filtering is rejecting all primitives
+    # This needs investigation - primitive IDs might not match expected format
+    return False
+    
     # Conservative shape-based rules (only reject when we're very confident)
     
     # Check if all examples have same input->output shape pattern
@@ -90,18 +94,30 @@ def filter_primitives_by_shape(primitives: List[Primitive], challenge: Challenge
     """
     input_shapes, output_shapes = get_shape_signature(challenge)
     
+    # Debug shape information
+    print(f"[{challenge.id}] Challenge shapes: inputs={input_shapes}, outputs={output_shapes}")
+    all_shapes_preserved = all(inp == out for inp, out in zip(input_shapes, output_shapes))
+    any_shape_changed = any(inp != out for inp, out in zip(input_shapes, output_shapes))
+    print(f"[{challenge.id}] Shape analysis: all_preserved={all_shapes_preserved}, any_changed={any_shape_changed}")
+    
     kept = []
     rejected_count = 0
+    rejected_reasons = []
     
     for primitive in primitives:
         primitive_id = getattr(primitive, 'id', 'unknown')
         
         if should_reject_primitive_by_shape(primitive_id, input_shapes, output_shapes):
             rejected_count += 1
+            # Track first few rejection reasons for debugging
+            if len(rejected_reasons) < 5:
+                rejected_reasons.append(primitive_id)
         else:
             kept.append(primitive)
     
     if rejected_count > 0:
         print(f"[{challenge.id}] Shape filter: kept {len(kept)}/{len(primitives)} primitives (rejected {rejected_count})")
+        if rejected_reasons:
+            print(f"[{challenge.id}] Sample rejected primitives: {rejected_reasons}")
     
     return kept
