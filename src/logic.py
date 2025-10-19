@@ -894,10 +894,29 @@ async def _fast_two_pass_select_primitives_async(
     
     if perfect_indices:
         print(f"[{challenge.id}] Fast sweep: found {len(perfect_indices)} perfect-on-first primitives")
-        # Test perfect candidates on all examples using second pass logic
+        # Test perfect candidates on all examples using worker pool
         perfect_candidates = [filtered_primitives[i] for i in perfect_indices]
         second_pass_start = time.perf_counter()
-        perfect_results = await _evaluate_candidates_full_async(perfect_candidates, challenge, challenge_primitive_scores)
+        
+        # Use worker pool for perfect candidates too
+        if pool:
+            train_inputs = [ex.input for ex in challenge.train]
+            train_outputs = [ex.output for ex in challenge.train]
+            perfect_ids = [getattr(p, 'id', f'prim_{i}') for i, p in enumerate(perfect_candidates)]
+            
+            try:
+                perfect_pool_results = pool.evaluate_primitives_batch(
+                    primitive_ids=perfect_ids,
+                    train_inputs=train_inputs,
+                    train_outputs=train_outputs,
+                    timeout_per_primitive=5.0
+                )
+                perfect_results = [(r.num_correct, r.accuracy_score) for r in perfect_pool_results]
+            except Exception as e:
+                print(f"[{challenge.id}] Perfect candidates worker pool failed: {e}, falling back to async")
+                perfect_results = await _evaluate_candidates_full_async(perfect_candidates, challenge, challenge_primitive_scores)
+        else:
+            perfect_results = await _evaluate_candidates_full_async(perfect_candidates, challenge, challenge_primitive_scores)
         
         # Check if any solve all examples
         total_examples = len(challenge.train)
@@ -928,9 +947,29 @@ async def _fast_two_pass_select_primitives_async(
         print(f"[{challenge.id}] First pass: {first_pass_time:.1f}s ({len(filtered_primitives)} primitives), Second pass: 0.0s (0 candidates)")
         return []
     
-    # Second pass: evaluate top candidates on all examples
+    # Second pass: evaluate top candidates on all examples using worker pool
     second_pass_start = time.perf_counter()
-    full_results = await _evaluate_candidates_full_async(top_candidates, challenge, challenge_primitive_scores)
+    
+    # Use worker pool for second pass too
+    if pool:
+        train_inputs = [ex.input for ex in challenge.train]
+        train_outputs = [ex.output for ex in challenge.train]
+        candidate_ids = [getattr(p, 'id', f'prim_{i}') for i, p in enumerate(top_candidates)]
+        
+        try:
+            second_pass_results = pool.evaluate_primitives_batch(
+                primitive_ids=candidate_ids,
+                train_inputs=train_inputs,
+                train_outputs=train_outputs,
+                timeout_per_primitive=5.0
+            )
+            full_results = [(r.num_correct, r.accuracy_score) for r in second_pass_results]
+        except Exception as e:
+            print(f"[{challenge.id}] Second pass worker pool failed: {e}, falling back to async")
+            full_results = await _evaluate_candidates_full_async(top_candidates, challenge, challenge_primitive_scores)
+    else:
+        full_results = await _evaluate_candidates_full_async(top_candidates, challenge, challenge_primitive_scores)
+        
     second_pass_time = time.perf_counter() - second_pass_start
     
     # Select final primitives using softmax
