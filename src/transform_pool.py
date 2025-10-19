@@ -63,7 +63,7 @@ def _worker_initializer(library_data: bytes):
         
         # Only log first few workers to reduce noise
         if _WORKER_ID % 1000 == _WORKER_ID or _WORKER_ID < 1005:
-        print(f"✅ Worker {_WORKER_ID}: loaded {len(_PRIMITIVES_CACHE)} primitives")
+            print(f"✅ Worker {_WORKER_ID}: loaded {len(_PRIMITIVES_CACHE)} primitives")
         # Reset batch context
         global _BATCH_INPUTS, _BATCH_OUTPUTS, _BATCH_HASH
         _BATCH_INPUTS, _BATCH_OUTPUTS, _BATCH_HASH = None, None, None
