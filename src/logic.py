@@ -903,6 +903,7 @@ async def _fast_two_pass_select_primitives_async(
             total_time = time.perf_counter() - start_time
             print(f"[{challenge.id}] Fast sweep: {len(perfect_all)} primitives solve all examples!")
             print(f"[{challenge.id}] Fast sweep: shape={shape_filter_time:.1f}s, first={first_pass_time:.1f}s, second={second_pass_time:.1f}s, total={total_time:.1f}s")
+            print(f"[{challenge.id}] First pass: {first_pass_time:.1f}s ({len(filtered_primitives)} primitives), Second pass: {second_pass_time:.1f}s ({len(perfect_candidates)} candidates) (early-exit)")
             # Return best perfect ones
             scores = [nc + sc for _, nc, sc in perfect_all]
             scores_arr = np.array(scores)
@@ -919,6 +920,7 @@ async def _fast_two_pass_select_primitives_async(
     if not top_candidates:
         total_time = time.perf_counter() - start_time
         print(f"[{challenge.id}] Fast sweep: shape={shape_filter_time:.1f}s, first={first_pass_time:.1f}s, second=0.0s, total={total_time:.1f}s")
+        print(f"[{challenge.id}] First pass: {first_pass_time:.1f}s ({len(filtered_primitives)} primitives), Second pass: 0.0s (0 candidates)")
         return []
     
     # Second pass: evaluate top candidates on all examples
@@ -929,6 +931,9 @@ async def _fast_two_pass_select_primitives_async(
     # Select final primitives using softmax
     scores = [nc + sc for nc, sc in full_results]
     if not scores:
+        total_time = time.perf_counter() - start_time
+        print(f"[{challenge.id}] Fast sweep: shape={shape_filter_time:.1f}s, first={first_pass_time:.1f}s, second=0.0s, total={total_time:.1f}s")
+        print(f"[{challenge.id}] First pass: {first_pass_time:.1f}s ({len(filtered_primitives)} primitives), Second pass: 0.0s ({len(top_candidates)} candidates)")
         return []
     
     scores_arr = np.array(scores)
@@ -937,9 +942,10 @@ async def _fast_two_pass_select_primitives_async(
     selected_positions = _safe_sample_indices(len(scores), min(k_top, len(scores)), probabilities, ctx=f"fast_sweep:{challenge.id}")
     
     total_time = time.perf_counter() - start_time
-    print(f"[{challenge.id}] Fast sweep: blocklist={blocklist_filter_time:.3f}s, shape={shape_filter_time:.3f}s, first={first_pass_time:.1f}s, second={second_pass_time:.1f}s, total={total_time:.1f}s")
+    print(f"[{challenge.id}] Fast sweep: shape={shape_filter_time:.1f}s, first={first_pass_time:.1f}s, second={second_pass_time:.1f}s, total={total_time:.1f}s")
+    print(f"[{challenge.id}] First pass: {first_pass_time:.1f}s ({len(filtered_primitives)} primitives), Second pass: {second_pass_time:.1f}s ({len(top_candidates)} candidates)")
     
-    # Light cleanup only after challenges (not after each primitive)
+    return [top_candidates[pos] for pos in selected_positions]
     try:
         import gc
         gc.collect()
