@@ -453,17 +453,11 @@ def initialize_global_pool(library) -> None:
 def get_global_transform_pool(library=None) -> FastTransformPool:
     """Get the pre-initialized global transform pool"""
     global _global_pool
-    
     if _global_pool is None:
         raise RuntimeError("Global pool not initialized! Call initialize_global_pool() at startup first.")
-        
     if not _global_pool._executor:
         print("🔄 Restarting shutdown pool...")
         _global_pool.start()
-        
-    return _global_pool
-            pass
-    
     return _global_pool
 
 def shutdown_global_pool():
