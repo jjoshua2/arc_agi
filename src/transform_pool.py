@@ -434,79 +434,33 @@ class FastTransformPool:
         
         return results
 
-import threading
-
-# Global pool instance (singleton pattern for notebook compatibility)
+# Global pool instance (simple startup initialization)
 _global_pool: Optional[FastTransformPool] = None
-_pool_lock = threading.Lock()  # Thread-safe pool creation
-_global_library_hash: Optional[str] = None  # Track library content hash
-_pool_creating = False  # Flag to prevent concurrent creation
 
-def _get_library_hash(library) -> str:
-    """Get a hash of the library content for comparison"""
-    try:
-        import hashlib
-        # Use primitive count and first/last primitive IDs as a simple hash
-        primitive_ids = [getattr(p, 'id', f'prim_{i}') for i, p in enumerate(library.primitives)]
-        content = f"{len(primitive_ids)}:{primitive_ids[0] if primitive_ids else ''}:{primitive_ids[-1] if primitive_ids else ''}"
-        return hashlib.md5(content.encode()).hexdigest()[:8]
-    except Exception:
-        return "unknown"
+def initialize_global_pool(library) -> None:
+    """Initialize the global transform pool at startup"""
+    global _global_pool
+    
+    if _global_pool is not None:
+        print("⚠️  Global pool already initialized, skipping")
+        return
+        
+    print(f"🏗️  Initializing global transform pool at startup ({len(library.primitives)} primitives)")
+    _global_pool = FastTransformPool(library)
+    _global_pool.start()
+    print(f"✅ Global transform pool ready")
 
 def get_global_transform_pool(library=None) -> FastTransformPool:
-    """Get or create global transform pool (thread-safe, reuses same library)"""
-    global _global_pool, _global_library_hash, _pool_creating
+    """Get the pre-initialized global transform pool"""
+    global _global_pool
     
-    import threading
-    import time
-    current_thread = threading.current_thread().name
-    current_library_hash = _get_library_hash(library) if library else None
-    
-    with _pool_lock:
-        # If another thread is creating, wait for it
-        if _pool_creating:
-            print(f"⏳ Waiting for pool creation by another thread [thread: {current_thread}]")
-            
-        # Wait for creation to complete (up to 60 seconds)
-        start_wait = time.time()
-        while _pool_creating and (time.time() - start_wait) < 60:
-            time.sleep(0.1)
-            
-        if _pool_creating:
-            print(f"⚠️  Timeout waiting for pool creation [thread: {current_thread}]")
-            return None
-            
-        # Check if pool exists after waiting
-        if _global_pool is not None and _global_pool._executor:
-            if current_library_hash == _global_library_hash:
-                # Pool exists and library matches - reuse
-                return _global_pool
-            else:
-                # Library changed, recreate
-                print(f"🔄 Library changed (hash {_global_library_hash} -> {current_library_hash}), recreating pool... [thread: {current_thread}]")
-                _global_pool.shutdown()
-                _global_pool = None
-                
-        # Need to create new pool
-        if _global_pool is None and library is not None:
-            print(f"🏗️  Creating NEW global transform pool [thread: {current_thread}, hash: {current_library_hash}]")
-            _pool_creating = True
-            
-    # Create pool outside lock to avoid blocking
-    if _pool_creating:
-        try:
-            new_pool = FastTransformPool(library)
-            new_pool.start()
-            with _pool_lock:
-                _global_pool = new_pool
-                _global_library_hash = current_library_hash
-                _pool_creating = False
-        except Exception as e:
-            with _pool_lock:
-                _pool_creating = False
-            print(f"⚠️  Failed to create pool: {e}")
-            raise e
-    
+    if _global_pool is None:
+        raise RuntimeError("Global pool not initialized! Call initialize_global_pool() at startup first.")
+        
+    if not _global_pool._executor:
+        print("🔄 Restarting shutdown pool...")
+        _global_pool.start()
+        
     return _global_pool
             pass
     
@@ -516,5 +470,7 @@ def shutdown_global_pool():
     """Shutdown global pool"""
     global _global_pool
     if _global_pool:
+        print("🔄 Shutting down global transform pool...")
         _global_pool.shutdown()
         _global_pool = None
+        print("✅ Global transform pool shutdown complete")

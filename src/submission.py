@@ -331,6 +331,11 @@ async def main() -> None:
 
     print(f"library size: {len(library.primitives)}")
     logfire.debug(f"library size: {len(library.primitives)}")
+    
+    # Initialize global transform pool if using fast sweep (library has primitives)
+    if library and library.primitives and os.environ.get("ARC_FAST_SWEEP", "1") == "1":
+        from src.transform_pool import initialize_global_pool
+        initialize_global_pool(library)
 
     solved_challenges = set()
     # Dictionary to store primitive lpn scores for each challenge (scores don't change across runs)
