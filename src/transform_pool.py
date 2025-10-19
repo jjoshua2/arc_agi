@@ -356,9 +356,10 @@ class FastTransformPool:
         completed_count = 0
         total_jobs = len(jobs)
         
-        # Add overall timeout to prevent infinite hangs (should be fast: ~2000 * 0.3s = 600s max)
+        # Add overall timeout to prevent infinite hangs
         import concurrent.futures
-        timeout_seconds = max(600, total_jobs * 0.5)  # 0.5s per primitive as safety margin
+        # Tighter cap: default fast sweep should finish well under a minute; bail out early on hangs
+        timeout_seconds = max(120, min(300, int(total_jobs * 0.2)))  # 0.2s per primitive, min 120s, max 300s
         print(f"Starting evaluation of {total_jobs} primitives (timeout: {timeout_seconds}s)")
         
         try:
