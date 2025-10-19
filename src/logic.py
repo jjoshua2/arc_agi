@@ -589,6 +589,9 @@ async def _two_pass_select_primitives_async(
         return []
 
     # First pass on example_index=0 across all primitives (async batched)
+    import time
+    first_pass_start = time.perf_counter()
+    
     example_index = 0
     prims = list(library.primitives)
     first_pass_scores: list[tuple[int, float, float]] = []  # (idx, num_correct, acc)
@@ -607,6 +610,8 @@ async def _two_pass_select_primitives_async(
             else:
                 nc, acc = r
                 first_pass_scores.append((idx, float(nc), float(acc)))
+    
+    first_pass_time = time.perf_counter() - first_pass_start
 
     # Identify perfect-on-first-example primitives
     perfect_on_first: list[int] = [idx for idx, nc, acc in first_pass_scores if nc >= 1.0 and acc >= 1.0]
@@ -675,6 +680,7 @@ async def _two_pass_select_primitives_async(
 
     # Second pass: evaluate shortlisted candidates across all training examples
     # NOTE: if any perfect-on-first primitives were already evaluated above, they are already in cache
+    second_pass_start = time.perf_counter()
     full_scores: list[tuple[int, float, float]] = []  # (idx_in_prims, num_correct_total, secondary_score)
 
     total_tr = len(challenge.train)
@@ -732,6 +738,13 @@ async def _two_pass_select_primitives_async(
     # Sample k_top distinct primitives based on probabilities
     selected_idx_positions = _safe_sample_indices(len(scores), min(k_top, len(scores)), probabilities, ctx=f"two_pass:{challenge.id}")
     final_indices = [idxs[pos] for pos in selected_idx_positions]
+    
+    second_pass_time = time.perf_counter() - second_pass_start
+    
+    # Print phase timing
+    print(f"[{challenge.id}] First pass: {first_pass_time:.1f}s ({len(prims)} primitives), Second pass: {second_pass_time:.1f}s ({len(candidates)} candidates)")
+    logfire.debug(f"[{challenge.id}] Phase timing - First: {first_pass_time:.1f}s, Second: {second_pass_time:.1f}s")
+    
     return [prims[i] for i in final_indices]
 
 

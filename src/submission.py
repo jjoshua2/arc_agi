@@ -787,16 +787,16 @@ async def main() -> None:
                 if err is not None:
                     print(f"Error solving challenge {challenge_id}: {err}")
                     logfire.debug(f"Error solving challenge {challenge_id}: {err}")
-                            elif solved:
-                                was_previously_solved = challenge_id in solved_challenges
-                                if not was_previously_solved:
-                                    solved_challenges.add(challenge_id)
-                                if (
-                                    challenge_id not in solved_before_round_snapshot
-                                    and challenge_id not in round_new_solved_ids
-                                ):
-                                    round_new_solved_ids.add(challenge_id)
-                            # Note: individual challenge completion status is shown in concise format above
+                elif solved:
+                    was_previously_solved = challenge_id in solved_challenges
+                    if not was_previously_solved:
+                        solved_challenges.add(challenge_id)
+                    if (
+                        challenge_id not in solved_before_round_snapshot
+                        and challenge_id not in round_new_solved_ids
+                    ):
+                        round_new_solved_ids.add(challenge_id)
+                # Note: individual challenge completion status is shown in concise format above
 
                 try:
                     if _is_train_perfect_but_test_wrong(challenge_id):
