@@ -43,6 +43,8 @@ def _worker_initializer(library_data: bytes):
         # Get actual process ID for logging
         import os
         _WORKER_ID = os.getpid()
+        print(f"🔧 Worker {_WORKER_ID}: Starting initialization...")
+        
         # Deserialize library
         import pickle
         library = pickle.loads(library_data)
@@ -52,9 +54,11 @@ def _worker_initializer(library_data: bytes):
         }
         # Set numpy to be quiet
         np.seterr(all='ignore')
-        print(f"Worker {_WORKER_ID}: loaded {len(_PRIMITIVES_CACHE)} primitives")
+        print(f"✅ Worker {_WORKER_ID}: loaded {len(_PRIMITIVES_CACHE)} primitives")
     except Exception as e:
-        print(f"Worker {_WORKER_ID} init failed: {e}")
+        print(f"❌ Worker {_WORKER_ID} init failed: {e}")
+        import traceback
+        print(f"Worker {_WORKER_ID} traceback: {traceback.format_exc()}")
 
 def _evaluate_primitive_in_worker(job: EvalJob) -> PrimitiveResult:
     """Evaluate single primitive in worker process"""
@@ -110,6 +114,7 @@ def _evaluate_primitive_in_worker(job: EvalJob) -> PrimitiveResult:
         # These are worker-killing errors - record them for blocklist
         eval_time_ms = (time.perf_counter() - start_time) * 1000
         error_type = type(e).__name__
+        print(f"🚨 Worker {_WORKER_ID}: KILLER ERROR on {job.primitive_id}: {error_type}")
         return PrimitiveResult(
             primitive_id=job.primitive_id,
             num_correct=0.0,
@@ -267,10 +272,13 @@ class FastTransformPool:
                 num_workers = 2  # Very conservative default for memory
             
         self.num_workers = num_workers
-        self.max_tasks_per_child = max_tasks_per_child
+        # Increase tasks per child to reduce worker restarts
+        self.max_tasks_per_child = max(max_tasks_per_child, 500)
         
-        # Serialize library for workers
+        # Serialize library for workers (this might be large!)
+        import pickle
         self._library_data = pickle.dumps(library)
+        print(f"Serialized library: {len(self._library_data) / 1024 / 1024:.1f}MB")
         self._executor = None
         
     def start(self):
@@ -289,7 +297,7 @@ class FastTransformPool:
             max_tasks_per_child=self.max_tasks_per_child
         )
         
-        print(f"Started transform pool: {self.num_workers} workers, forkserver context")
+        print(f"🚀 Started transform pool: {self.num_workers} workers, forkserver context, {self.max_tasks_per_child} tasks per child")
         
     def shutdown(self):
         """Shutdown the worker pool"""
@@ -328,17 +336,34 @@ class FastTransformPool:
             for pid in primitive_ids
         ]
         
-        # Submit all jobs
+        # Submit all jobs with timing
+        submit_start = time.perf_counter()
         future_to_job = {
             self._executor.submit(_evaluate_primitive_in_worker, job): job 
             for job in jobs
         }
+        submit_time = time.perf_counter() - submit_start
+        print(f"Submitted {len(jobs)} jobs to pool in {submit_time:.3f}s")
         
-        # Collect results
+        # Collect results with progress tracking and timeout
         results = []
-        for future in as_completed(future_to_job):
+        completed_count = 0
+        total_jobs = len(jobs)
+        
+        # Add overall timeout to prevent infinite hangs (should be fast: ~2000 * 0.3s = 600s max)
+        import concurrent.futures
+        timeout_seconds = max(600, total_jobs * 0.5)  # 0.5s per primitive as safety margin
+        print(f"Starting evaluation of {total_jobs} primitives (timeout: {timeout_seconds}s)")
+        
+        try:
+            for future in as_completed(future_to_job, timeout=timeout_seconds):
             try:
                 result = future.result()  # Let primitives run (should be fast ~100-300ms)
+                completed_count += 1
+                
+                # Progress logging every 100 primitives or 10% of total
+                if completed_count % min(100, max(1, total_jobs // 10)) == 0 or completed_count == total_jobs:
+                    print(f"Progress: {completed_count}/{total_jobs} primitives evaluated ({completed_count/total_jobs*100:.1f}%)")
                 
                 # Check for worker-killing errors and record for blocklist
                 if not result.success and result.error_msg and result.error_msg.startswith("WORKER_KILLER:"):
@@ -347,6 +372,7 @@ class FastTransformPool:
                     error_parts = result.error_msg.split(":", 2)
                     error_type = error_parts[1] if len(error_parts) > 1 else "crash"
                     blocklist.record_failure(result.primitive_id, error_type.lower())
+                    print(f"⚠️  Blocked primitive {result.primitive_id} due to {error_type}")
                 
                 results.append(result)
                 
@@ -366,6 +392,7 @@ class FastTransformPool:
                         raise e  # Original error
                 
                 # Record crashes for blocklist
+                print(f"🚨 Worker crashed during primitive {job.primitive_id}: {e}")
                 from src.primitive_blocklist import get_primitive_blocklist
                 blocklist = get_primitive_blocklist()
                 blocklist.record_failure(job.primitive_id, "worker_crash")
@@ -377,6 +404,25 @@ class FastTransformPool:
                     success=False,
                     error_msg=f"Worker exception: {str(e)[:100]}"
                 ))
+        
+        except concurrent.futures.TimeoutError:
+            print(f"❌ TIMEOUT: Only completed {completed_count}/{total_jobs} primitives in {timeout_seconds}s")
+            print("This suggests workers are hanging or dying. Cancelling remaining futures...")
+            
+            # Cancel remaining futures and collect what we have
+            for future in future_to_job:
+                if not future.done():
+                    future.cancel()
+                    job = future_to_job[future]
+                    results.append(PrimitiveResult(
+                        primitive_id=job.primitive_id,
+                        num_correct=0.0,
+                        accuracy_score=0.0,
+                        success=False,
+                        error_msg="Evaluation timeout - worker may have hung"
+                    ))
+            
+            print(f"Returning {len(results)} results (some may be timeouts)")
         
         return results
 

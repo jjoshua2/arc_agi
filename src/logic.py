@@ -587,6 +587,10 @@ async def _two_pass_select_primitives_async(
         sp_batch = 150
 
     if not library or not library.primitives:
+        try:
+            print(f"[{challenge.id}] First pass: 0.0s (0 primitives), Second pass: 0.0s (0 candidates)")
+        except Exception:
+            pass
         return []
 
     # Check if fast sweep is enabled and memory allows it
@@ -1319,6 +1323,10 @@ async def get_best_primitives_weighed_by_score_async(
     Optionally uses a two-pass strategy controlled via env vars to reduce full scoring.
     """
     if len(library.primitives) == 0:
+        try:
+            print(f"[{challenge.id}] First pass: 0.0s (0 primitives), Second pass: 0.0s (0 candidates)")
+        except Exception:
+            pass
         return []
 
     # Two-pass gate (default ON): first-pass single-example across all, second-pass full on top-K
