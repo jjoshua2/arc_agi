@@ -151,8 +151,6 @@ def _evaluate_primitive_in_worker(job: EvalJob) -> PrimitiveResult:
         if not results:
             if timed_out:
                 print(f"⚠️  Worker {_WORKER_ID}: primitive {job.primitive_id} timed out after {timeout_sec:.2f}s")
-            else:
-                print(f"⚠️  Worker {_WORKER_ID}: primitive {job.primitive_id} failed during evaluation ({failure_reason})")
             return PrimitiveResult(
                 primitive_id=job.primitive_id,
                 num_correct=0.0,
