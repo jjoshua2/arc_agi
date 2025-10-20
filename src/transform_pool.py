@@ -12,11 +12,6 @@ from typing import Dict, List, Tuple, Any, Optional
 from dataclasses import dataclass
 from collections import deque
 import numpy as np
-# Best-effort POSIX timers for per-primitive timeouts (Linux Kaggle supported)
-try:
-    import signal as _signal
-except Exception:
-    _signal = None
 
 from src.models import GRID
 
@@ -178,7 +173,7 @@ def _evaluate_primitives_chunk_in_worker(primitive_ids, train_inputs, train_outp
     return results
 
 def _run_transform_inline(code: str, grid_inputs: List[GRID], timeout_sec: float) -> Optional[List[GRID]]:
-    """Run transform function inline without subprocess, with per-primitive timeout"""
+    """Run transform function inline without subprocess"""
     try:
         # Defensive programming: limit code length to prevent memory issues
         if len(code) > 50000:  # 50KB limit
@@ -205,19 +200,13 @@ def _run_transform_inline(code: str, grid_inputs: List[GRID], timeout_sec: float
             'Optional': Optional,
         }
         
-        # Execute the code to define transform function with timeout
+        # Execute the code to define transform function
         try:
-            if _signal and hasattr(_signal, 'setitimer'):
-                _signal.signal(_signal.SIGALRM, lambda s, f: (_ for _ in ()).throw(TimeoutError("exec timeout")))
-                _signal.setitimer(_signal.ITIMER_REAL, max(0.1, timeout_sec))
             exec(code, exec_globals)
-        except (TimeoutError, MemoryError, RecursionError, SystemError):
+        except (MemoryError, RecursionError, SystemError):
             return None
         except Exception:
             return None
-        finally:
-            if _signal and hasattr(_signal, 'setitimer'):
-                _signal.setitimer(_signal.ITIMER_REAL, 0.0)
             
         transform_func = exec_globals.get('transform')
         
@@ -231,13 +220,7 @@ def _run_transform_inline(code: str, grid_inputs: List[GRID], timeout_sec: float
                 # Basic input validation
                 if not _is_valid_grid(grid_input):
                     return None
-                # Per-call timeout
-                if _signal and hasattr(_signal, 'setitimer'):
-                    _signal.setitimer(_signal.ITIMER_REAL, max(0.1, timeout_sec))
                 result = transform_func(grid_input)
-                # Disable timer after successful call
-                if _signal and hasattr(_signal, 'setitimer'):
-                    _signal.setitimer(_signal.ITIMER_REAL, 0.0)
                 
                 # Validate result
                 if not _is_valid_grid(result):
@@ -248,11 +231,6 @@ def _run_transform_inline(code: str, grid_inputs: List[GRID], timeout_sec: float
                     return None
                     
                 results.append(result)
-            except TimeoutError:
-                # Timed out on this input; treat as failure for the whole primitive
-                if _signal and hasattr(_signal, 'setitimer'):
-                    _signal.setitimer(_signal.ITIMER_REAL, 0.0)
-                return None
             except (MemoryError, RecursionError, SystemError):
                 # Worker-killing errors
                 return None

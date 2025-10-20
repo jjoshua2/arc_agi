@@ -652,6 +652,8 @@ async def main() -> None:
                 from src.trees.experiments import grokfast_dreamcoder_tree
                 from src.logic import solve_challenge_with_accuracy
                 challenge_obj = challenges[challenge_id]
+                import time as _time
+                _t0 = _time.perf_counter()
                 solutions_and_accuracies = await solve_challenge_with_accuracy(
                     challenge=challenge_obj,
                     tree=grokfast_dreamcoder_tree,
@@ -665,6 +667,7 @@ async def main() -> None:
                     aggregate_cost_in_cents=total_cost_in_cents,
                     on_llm_dispatch=lambda: print(f"[{challenge_id}] calling xai (background)")
                 )
+                print(f"[{challenge_id}] LLM returned in {(_time.perf_counter()-_t0):.1f}s", flush=True)
                 first_solutions, first_accuracy = solutions_and_accuracies[0]
                 second_solutions, second_accuracy = solutions_and_accuracies[1]
                 # Store results
