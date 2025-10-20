@@ -29,6 +29,18 @@ def _timeout_handler(signum, frame):
     raise TimeoutError("primitive execution timed out")
 
 _INLINE_TIMEOUT_DEFAULT = float(os.environ.get("ARC_FAST_SWEEP_PRIMITIVE_TIMEOUT", "2"))
+_TRACE_PRIMITIVES = os.environ.get("ARC_FAST_SWEEP_PRIMITIVE_TRACE", "0") == "1"
+_TRACE_PRIMITIVES_PATH = os.environ.get("ARC_FAST_SWEEP_PRIMITIVE_TRACE_FILE") or "primitive_trace.log"
+
+
+def _trace_primitive(msg: str) -> None:
+    if not _TRACE_PRIMITIVES:
+        return
+    try:
+        with open(_TRACE_PRIMITIVES_PATH, "a", encoding="utf-8") as fh:
+            fh.write(msg + "\n")
+    except Exception:
+        pass
 
 # Global worker state (populated by initializer)
 _PRIMITIVES_CACHE: Dict[str, str] = {}  # id -> python_code_str
@@ -101,7 +113,7 @@ def _evaluate_primitive_in_worker(job: EvalJob) -> PrimitiveResult:
     """Evaluate single primitive in worker process"""
     global _PRIMITIVES_CACHE
     start_time = time.perf_counter()
-    print(f"▶️  Worker {_WORKER_ID}: starting primitive {job.primitive_id}")
+    _trace_primitive(f"▶️  Worker {_WORKER_ID}: starting primitive {job.primitive_id}")
     
     try:
         code = _PRIMITIVES_CACHE.get(job.primitive_id)
@@ -180,7 +192,7 @@ def _evaluate_primitive_in_worker(job: EvalJob) -> PrimitiveResult:
             success=True,
             eval_time_ms=eval_time_ms
         )
-        print(f"✅ Worker {_WORKER_ID}: finished primitive {job.primitive_id} in {eval_time_ms:.2f}ms")
+        _trace_primitive(f"✅ Worker {_WORKER_ID}: finished primitive {job.primitive_id} in {eval_time_ms:.2f}ms")
         return result
         
     except (MemoryError, RecursionError, SystemError) as e:
@@ -198,7 +210,7 @@ def _evaluate_primitive_in_worker(job: EvalJob) -> PrimitiveResult:
         )
     except Exception as e:
         eval_time_ms = (time.perf_counter() - start_time) * 1000
-        print(f"⚠️  Worker {_WORKER_ID}: exception during primitive {job.primitive_id}: {e}")
+        _trace_primitive(f"⚠️  Worker {_WORKER_ID}: exception during primitive {job.primitive_id}: {e}")
         return PrimitiveResult(
             primitive_id=job.primitive_id,
             num_correct=0.0,
