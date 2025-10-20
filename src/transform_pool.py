@@ -540,6 +540,7 @@ class FastTransformPool:
         try:
             while completed_count < total_jobs:
                 try:
+                    restart_triggered = False
                     for future in as_completed(list(future_to_chunk.keys()), timeout=5):
                         try:
                             chunk_results = future.result()
@@ -569,11 +570,11 @@ class FastTransformPool:
                             # Submit next chunk if available
                             if chunk_queue:
                                 ch_next = chunk_queue.popleft()
-                                fut_next = self._executor.submit(
+                                fut = self._executor.submit(
                                     _evaluate_primitives_chunk_in_worker,
                                     ch_next, train_inputs, train_outputs, timeout_per_primitive, ctx_hash
                                 )
-                                future_to_chunk[fut_next] = ch_next
+                                future_to_chunk[fut] = ch_next
                         except Exception as e:
                             chunk = future_to_chunk.get(future, [])
                             # Check if this is a worker crash that killed the pool
@@ -587,15 +588,37 @@ class FastTransformPool:
                                 except Exception:
                                     pass
                                 print(f"Worker pool crashed, attempting to recreate...")
+                                remaining_chunks = []
+                                if chunk:
+                                    remaining_chunks.append(chunk)
+                                for fut_existing, chunk_existing in list(future_to_chunk.items()):
+                                    if fut_existing is not future and chunk_existing:
+                                        remaining_chunks.append(chunk_existing)
+                                remaining_chunks.extend(list(chunk_queue))
                                 try:
                                     self.shutdown()
+                                except Exception:
+                                    pass
+                                try:
                                     self.start()
                                     print("Worker pool recreated successfully")
-                                    # Don't return partial results, let caller retry
-                                    raise RuntimeError("Worker pool was recreated, please retry") from e
                                 except Exception as restart_e:
                                     print(f"Failed to recreate worker pool: {restart_e}")
-                                    raise e  # Original error
+                                    raise e
+                                future_to_chunk = {}
+                                chunk_queue = deque(remaining_chunks)
+                                for _ in range(inflight_limit):
+                                    if not chunk_queue:
+                                        break
+                                    ch_resubmit = chunk_queue.popleft()
+                                    fut_resubmit = self._executor.submit(
+                                        _evaluate_primitives_chunk_in_worker,
+                                        ch_resubmit, train_inputs, train_outputs, timeout_per_primitive, ctx_hash
+                                    )
+                                    future_to_chunk[fut_resubmit] = ch_resubmit
+                                last_progress = time.perf_counter()
+                                restart_triggered = True
+                                break
 
                             # Record crashes for all pids in chunk
                             for pid in chunk:
@@ -608,6 +631,8 @@ class FastTransformPool:
                                     error_msg=f"Worker exception: {str(e)[:100]}"
                                 ))
                             future_to_chunk.pop(future, None)
+                    if restart_triggered:
+                        continue
                 except concurrent.futures.TimeoutError:
                     # No completions in the last short window; check for stall
                     if (time.perf_counter() - last_progress) > stall_secs and future_to_chunk:
