@@ -141,6 +141,19 @@ def parse_args() -> argparse.Namespace:
         help="Primitive ID to inspect (repeat flag for multiple IDs)",
     )
     parser.add_argument(
+        "--challenge",
+        dest="challenge_ids",
+        action="append",
+        default=None,
+        help="Challenge ID to include (repeat flag for multiple IDs)",
+    )
+    parser.add_argument(
+        "--max-challenges",
+        type=int,
+        default=None,
+        help="Maximum number of challenges to evaluate per primitive (default: all)",
+    )
+    parser.add_argument(
         "--timeout",
         type=int,
         default=int(os.environ.get("SUBMISSION_TRANSFORM_TIMEOUT", "5")),
@@ -155,6 +168,8 @@ def main() -> None:
     scores = load_accuracy_scores(args.scores)
     code_map = filter_primitives(library, args.primitive_ids)
     timeout = args.timeout
+    challenge_filter = tuple(dict.fromkeys(args.challenge_ids)) if args.challenge_ids else None
+    max_challenges = args.max_challenges if args.max_challenges and args.max_challenges > 0 else None
 
     if not code_map:
         print("No matching primitives found in library for requested IDs.")
@@ -164,10 +179,22 @@ def main() -> None:
         print("=" * 80)
         print(f"Primitive {pid}")
         solved_any = False
-        for cid, score_map in scores.items():
+        if challenge_filter:
+            candidate_challenges = challenge_filter
+        else:
+            candidate_challenges = [
+                cid for cid, score_map in scores.items() if score_map.get(pid) is not None
+            ]
+
+        if not candidate_challenges:
+            candidate_challenges = challenge_filter or []
+
+        if max_challenges is not None:
+            candidate_challenges = list(candidate_challenges)[:max_challenges]
+
+        for cid in candidate_challenges:
+            score_map = scores.get(cid, {})
             entry = score_map.get(pid)
-            if entry is None:
-                continue
             challenge = get_challenge(cid)
             if challenge is None:
                 continue

@@ -33,19 +33,28 @@ def load_library(path: str) -> Library:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Show primitive code by ID")
     parser.add_argument("library", help="Path to library pickle")
-    parser.add_argument("primitive_id", help="Primitive ID to show")
+    parser.add_argument("primitive_id", nargs="?", help="Primitive ID to inspect")
+    parser.add_argument("challenge_id", nargs="?", help="Challenge ID where the primitive was used")
+    parser.add_argument("--ids", nargs="*", help="Explicit primitive IDs to show", default=None)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     library = load_library(args.library)
+    ids: list[str]
+    if args.ids:
+        ids = args.ids
+    elif args.primitive_id:
+        ids = [args.primitive_id]
+    else:
+        parser.error("Must supply primitive_id or --ids")
     for primitive in library.primitives:
-        if str(primitive.id) == args.primitive_id:
+        if str(primitive.id) in ids:
             print(f"Primitive ID: {primitive.id}")
             print("Code:\n" + (primitive.python_code_str or "<empty>"))
-            return
-    print(f"Primitive {args.primitive_id} not found.")
+    if not any(str(primitive.id) in ids for primitive in library.primitives):
+        print(f"Primitives {', '.join(ids)} not found.")
 
 
 main()

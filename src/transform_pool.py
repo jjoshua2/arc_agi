@@ -100,8 +100,8 @@ def _worker_set_batch_context(train_inputs: List[GRID], train_outputs: List[GRID
 def _evaluate_primitive_in_worker(job: EvalJob) -> PrimitiveResult:
     """Evaluate single primitive in worker process"""
     global _PRIMITIVES_CACHE
-    
     start_time = time.perf_counter()
+    print(f"▶️  Worker {_WORKER_ID}: starting primitive {job.primitive_id}")
     
     try:
         code = _PRIMITIVES_CACHE.get(job.primitive_id)
@@ -173,13 +173,15 @@ def _evaluate_primitive_in_worker(job: EvalJob) -> PrimitiveResult:
         avg_accuracy = sum(accuracy_scores) / len(accuracy_scores) if accuracy_scores else 0.0
         eval_time_ms = (time.perf_counter() - start_time) * 1000
         
-        return PrimitiveResult(
+        result = PrimitiveResult(
             primitive_id=job.primitive_id,
             num_correct=num_correct,
             accuracy_score=avg_accuracy,
             success=True,
             eval_time_ms=eval_time_ms
         )
+        print(f"✅ Worker {_WORKER_ID}: finished primitive {job.primitive_id} in {eval_time_ms:.2f}ms")
+        return result
         
     except (MemoryError, RecursionError, SystemError) as e:
         # These are worker-killing errors - record them for blocklist
@@ -196,6 +198,7 @@ def _evaluate_primitive_in_worker(job: EvalJob) -> PrimitiveResult:
         )
     except Exception as e:
         eval_time_ms = (time.perf_counter() - start_time) * 1000
+        print(f"⚠️  Worker {_WORKER_ID}: exception during primitive {job.primitive_id}: {e}")
         return PrimitiveResult(
             primitive_id=job.primitive_id,
             num_correct=0.0,
