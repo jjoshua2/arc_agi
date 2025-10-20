@@ -14,6 +14,7 @@ from collections import deque
 import numpy as np
 
 from src.models import GRID
+from src.run_python import run_python_transform_sync
 
 # Global worker state (populated by initializer)
 _PRIMITIVES_CACHE: Dict[str, str] = {}  # id -> python_code_str
@@ -104,17 +105,30 @@ def _evaluate_primitive_in_worker(job: EvalJob) -> PrimitiveResult:
         grids_out = job.train_outputs if job.train_outputs is not None else _BATCH_OUTPUTS
         if grids_in is None or grids_out is None:
             raise RuntimeError("Worker batch context not set and no grids provided in job")
-        # Execute transform inline (avoid subprocess)
-        results = _run_transform_inline(code, grids_in, job.timeout_sec)
-        
-        if not results:
+        timeout_int = max(1, int(job.timeout_sec))
+        result = run_python_transform_sync(
+            code=code,
+            grid_lists=grids_in,
+            timeout=timeout_int,
+            raise_exception=False,
+        )
+
+        if not result or not result.transform_results:
+            error_msg = "Transform failed"
+            if result:
+                if result.timed_out:
+                    error_msg = f"Timeout after {timeout_int}s"
+                elif result.stderr:
+                    error_msg = result.stderr.strip()[:200]
             return PrimitiveResult(
                 primitive_id=job.primitive_id,
                 num_correct=0.0,
                 accuracy_score=0.0,
                 success=False,
-                error_msg="Transform failed"
+                error_msg=error_msg,
             )
+
+        results = result.transform_results
         
         # Compute scores
         num_correct = 0.0
