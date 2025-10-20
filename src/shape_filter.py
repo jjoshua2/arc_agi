@@ -2,6 +2,7 @@
 Shape-based primitive filtering for quick rejection.
 Reduces the candidate set before expensive evaluation.
 """
+import os
 from typing import List, Set, Dict, Tuple
 from src.models import Challenge, Primitive, GRID
 
@@ -95,10 +96,11 @@ def filter_primitives_by_shape(primitives: List[Primitive], challenge: Challenge
     input_shapes, output_shapes = get_shape_signature(challenge)
     
     # Debug shape information
-    print(f"[{challenge.id}] Challenge shapes: inputs={input_shapes}, outputs={output_shapes}")
     all_shapes_preserved = all(inp == out for inp, out in zip(input_shapes, output_shapes))
     any_shape_changed = any(inp != out for inp, out in zip(input_shapes, output_shapes))
-    print(f"[{challenge.id}] Shape analysis: all_preserved={all_shapes_preserved}, any_changed={any_shape_changed}")
+    if os.environ.get("SUBMISSION_VERBOSE") == "1":
+        print(f"[{challenge.id}] Challenge shapes: inputs={input_shapes}, outputs={output_shapes}")
+        print(f"[{challenge.id}] Shape analysis: all_preserved={all_shapes_preserved}, any_changed={any_shape_changed}")
     
     kept = []
     rejected_count = 0
@@ -115,7 +117,7 @@ def filter_primitives_by_shape(primitives: List[Primitive], challenge: Challenge
         else:
             kept.append(primitive)
     
-    if rejected_count > 0:
+    if rejected_count > 0 and os.environ.get("SUBMISSION_VERBOSE") == "1":
         print(f"[{challenge.id}] Shape filter: kept {len(kept)}/{len(primitives)} primitives (rejected {rejected_count})")
         if rejected_reasons:
             print(f"[{challenge.id}] Sample rejected primitives: {rejected_reasons}")

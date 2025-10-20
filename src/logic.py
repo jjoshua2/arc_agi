@@ -602,7 +602,8 @@ async def _two_pass_select_primitives_async(
         memory_info = psutil.virtual_memory()
         available_gb = memory_info.available / (1024 ** 3)
         used_gb = memory_info.used / (1024 ** 3)
-        print(f"[{challenge.id}] Memory: {used_gb:.1f}GB used, {available_gb:.1f}GB available")
+        if os.environ.get("SUBMISSION_VERBOSE") == "1":
+            print(f"[{challenge.id}] Memory: {used_gb:.1f}GB used, {available_gb:.1f}GB available")
         
         # Only disable if extremely low memory (shouldn't happen with 30GB)
         if available_gb < 1.0:
@@ -819,8 +820,10 @@ async def _fast_two_pass_select_primitives_async(
     if not filtered_primitives:
         print(f"[{challenge.id}] Fast sweep: no primitives after shape filter")
         total_time = time.perf_counter() - start_time
-        print(f"[{challenge.id}] Fast sweep: shape={shape_filter_time:.1f}s, first=0.0s, second=0.0s, total={total_time:.1f}s")
-        print(f"[{challenge.id}] First pass: 0.0s (0 primitives), Second pass: 0.0s (0 candidates)")
+        print(
+            f"[{challenge.id}] Fast sweep: shape={shape_filter_time:.1f}s, "
+            f"first=0.0s (0 primitives), second=0.0s (0 candidates), total={total_time:.1f}s"
+        )
         return []
     
     # Step 3: First pass using worker pool (single example)
@@ -926,8 +929,12 @@ async def _fast_two_pass_select_primitives_async(
             second_pass_time = time.perf_counter() - second_pass_start
             total_time = time.perf_counter() - start_time
             print(f"[{challenge.id}] Fast sweep: {len(perfect_all)} primitives solve all examples!")
-            print(f"[{challenge.id}] Fast sweep: shape={shape_filter_time:.1f}s, first={first_pass_time:.1f}s, second={second_pass_time:.1f}s, total={total_time:.1f}s")
-            print(f"[{challenge.id}] First pass: {first_pass_time:.1f}s ({len(filtered_primitives)} primitives), Second pass: {second_pass_time:.1f}s ({len(perfect_candidates)} candidates) (early-exit)")
+            print(
+                f"[{challenge.id}] Fast sweep: shape={shape_filter_time:.1f}s, "
+                f"first={first_pass_time:.1f}s ({len(filtered_primitives)} primitives), "
+                f"second={second_pass_time:.1f}s ({len(perfect_candidates)} candidates), "
+                f"total={total_time:.1f}s (early-exit)"
+            )
             # Return best perfect ones
             scores = [nc + sc for _, nc, sc in perfect_all]
             scores_arr = np.array(scores)
@@ -943,8 +950,11 @@ async def _fast_two_pass_select_primitives_async(
     
     if not top_candidates:
         total_time = time.perf_counter() - start_time
-        print(f"[{challenge.id}] Fast sweep: shape={shape_filter_time:.1f}s, first={first_pass_time:.1f}s, second=0.0s, total={total_time:.1f}s")
-        print(f"[{challenge.id}] First pass: {first_pass_time:.1f}s ({len(filtered_primitives)} primitives), Second pass: 0.0s (0 candidates)")
+        print(
+            f"[{challenge.id}] Fast sweep: shape={shape_filter_time:.1f}s, "
+            f"first={first_pass_time:.1f}s ({len(filtered_primitives)} primitives), "
+            f"second=0.0s (0 candidates), total={total_time:.1f}s"
+        )
         return []
     
     # Second pass: evaluate top candidates on all examples using worker pool
@@ -976,8 +986,11 @@ async def _fast_two_pass_select_primitives_async(
     scores = [nc + sc for nc, sc in full_results]
     if not scores:
         total_time = time.perf_counter() - start_time
-        print(f"[{challenge.id}] Fast sweep: shape={shape_filter_time:.1f}s, first={first_pass_time:.1f}s, second=0.0s, total={total_time:.1f}s")
-        print(f"[{challenge.id}] First pass: {first_pass_time:.1f}s ({len(filtered_primitives)} primitives), Second pass: 0.0s ({len(top_candidates)} candidates)")
+        print(
+            f"[{challenge.id}] Fast sweep: shape={shape_filter_time:.1f}s, "
+            f"first={first_pass_time:.1f}s ({len(filtered_primitives)} primitives), "
+            f"second=0.0s ({len(top_candidates)} candidates), total={total_time:.1f}s"
+        )
         return []
     
     scores_arr = np.array(scores)
@@ -986,8 +999,7 @@ async def _fast_two_pass_select_primitives_async(
     selected_positions = _safe_sample_indices(len(scores), min(k_top, len(scores)), probabilities, ctx=f"fast_sweep:{challenge.id}")
     
     total_time = time.perf_counter() - start_time
-    print(f"[{challenge.id}] Fast sweep: shape={shape_filter_time:.1f}s, first={first_pass_time:.1f}s, second={second_pass_time:.1f}s, total={total_time:.1f}s")
-    print(f"[{challenge.id}] First pass: {first_pass_time:.1f}s ({len(filtered_primitives)} primitives), Second pass: {second_pass_time:.1f}s ({len(top_candidates)} candidates)")
+    print(f"[{challenge.id}] Fast sweep: shape={shape_filter_time:.1f}s, first={first_pass_time:.1f}s ({len(filtered_primitives)} primitives), second={second_pass_time:.1f}s ({len(top_candidates)} candidates), total={total_time:.1f}s")
     
     return [top_candidates[pos] for pos in selected_positions]
     try:
