@@ -228,6 +228,8 @@ def _evaluate_primitives_chunk_in_worker(primitive_ids, train_inputs, train_outp
     for pid in primitive_ids:
         job = EvalJob(primitive_id=pid, train_inputs=train_inputs, train_outputs=train_outputs, timeout_sec=timeout_sec)
         res = _evaluate_primitive_in_worker(job)
+        if not res.success and res.error_msg == "WORKER_EXITED":
+            print(f"🛑 Worker {_WORKER_ID} exited while processing primitive {pid}")
         results.append(res)
     return results
 
@@ -274,7 +276,7 @@ def _run_transform_inline(code: str, grid_inputs: List[GRID], timeout_sec: float
             return None, True
         except (MemoryError, RecursionError, SystemError):
             return None, False
-        except Exception:
+        except BaseException:
             return None, False
         finally:
             if _HAS_SETITIMER:
@@ -314,7 +316,7 @@ def _run_transform_inline(code: str, grid_inputs: List[GRID], timeout_sec: float
             except (MemoryError, RecursionError, SystemError):
                 # Worker-killing errors
                 return None, False
-            except Exception:
+            except BaseException:
                 # Regular transform errors
                 return None, False
             finally:
@@ -326,7 +328,7 @@ def _run_transform_inline(code: str, grid_inputs: List[GRID], timeout_sec: float
     except (MemoryError, RecursionError, SystemError):
         # Top-level worker protection
         return None, False
-    except Exception:
+    except BaseException:
         return None, False
 
 def _is_valid_grid(obj) -> bool:
