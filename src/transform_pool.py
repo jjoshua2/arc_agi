@@ -16,6 +16,15 @@ import numpy as np
 from src.models import GRID
 from src.run_python import run_python_transform_sync
 
+try:
+    import signal as _signal
+    _HAS_SETITIMER = hasattr(_signal, "setitimer")
+except Exception:
+    _signal = None
+    _HAS_SETITIMER = False
+
+_INLINE_TIMEOUT_DEFAULT = float(os.environ.get("ARC_FAST_SWEEP_PRIMITIVE_TIMEOUT", "2"))
+
 # Global worker state (populated by initializer)
 _PRIMITIVES_CACHE: Dict[str, str] = {}  # id -> python_code_str
 _WORKER_ID: Optional[int] = None
@@ -105,31 +114,19 @@ def _evaluate_primitive_in_worker(job: EvalJob) -> PrimitiveResult:
         grids_out = job.train_outputs if job.train_outputs is not None else _BATCH_OUTPUTS
         if grids_in is None or grids_out is None:
             raise RuntimeError("Worker batch context not set and no grids provided in job")
-        timeout_int = max(1, int(job.timeout_sec))
-        result = run_python_transform_sync(
-            code=code,
-            grid_lists=grids_in,
-            timeout=timeout_int,
-            raise_exception=False,
-        )
-
-        if not result or not result.transform_results:
-            error_msg = "Transform failed"
-            if result:
-                if result.timed_out:
-                    error_msg = f"Timeout after {timeout_int}s"
-                elif result.stderr:
-                    error_msg = result.stderr.strip()[:200]
+        timeout_sec = job.timeout_sec or _INLINE_TIMEOUT_DEFAULT
+        results = _run_transform_inline(code, grids_in, timeout_sec=timeout_sec)
+        if not results:
+            if timeout_sec:
+                print(f"⚠️  Worker {_WORKER_ID}: primitive {job.primitive_id} timed out after {timeout_sec:.2f}s")
             return PrimitiveResult(
                 primitive_id=job.primitive_id,
                 num_correct=0.0,
                 accuracy_score=0.0,
                 success=False,
-                error_msg=error_msg,
+                error_msg="Transform failed",
             )
 
-        results = result.transform_results
-        
         # Compute scores
         num_correct = 0.0
         accuracy_scores = []
@@ -187,7 +184,7 @@ def _evaluate_primitives_chunk_in_worker(primitive_ids, train_inputs, train_outp
     return results
 
 def _run_transform_inline(code: str, grid_inputs: List[GRID], timeout_sec: float) -> Optional[List[GRID]]:
-    """Run transform function inline without subprocess"""
+    """Run transform function inline with optional POSIX timer fallback"""
     try:
         # Defensive programming: limit code length to prevent memory issues
         if len(code) > 50000:  # 50KB limit
@@ -214,13 +211,19 @@ def _run_transform_inline(code: str, grid_inputs: List[GRID], timeout_sec: float
             'Optional': Optional,
         }
         
-        # Execute the code to define transform function
+        # Execute the code to define transform function with timeout if supported
         try:
+            if _HAS_SETITIMER:
+                _signal.signal(_signal.SIGALRM, lambda signum, frame: (_ for _ in ()).throw(TimeoutError("exec timeout")))
+                _signal.setitimer(_signal.ITIMER_REAL, max(0.1, timeout_sec))
             exec(code, exec_globals)
         except (MemoryError, RecursionError, SystemError):
             return None
         except Exception:
             return None
+        finally:
+            if _HAS_SETITIMER:
+                _signal.setitimer(_signal.ITIMER_REAL, 0.0)
             
         transform_func = exec_globals.get('transform')
         
@@ -234,6 +237,8 @@ def _run_transform_inline(code: str, grid_inputs: List[GRID], timeout_sec: float
                 # Basic input validation
                 if not _is_valid_grid(grid_input):
                     return None
+                if _HAS_SETITIMER:
+                    _signal.setitimer(_signal.ITIMER_REAL, max(0.1, timeout_sec))
                 result = transform_func(grid_input)
                 
                 # Validate result
@@ -245,12 +250,19 @@ def _run_transform_inline(code: str, grid_inputs: List[GRID], timeout_sec: float
                     return None
                     
                 results.append(result)
+            except TimeoutError:
+                if _HAS_SETITIMER:
+                    _signal.setitimer(_signal.ITIMER_REAL, 0.0)
+                return None
             except (MemoryError, RecursionError, SystemError):
                 # Worker-killing errors
                 return None
             except Exception:
                 # Regular transform errors
                 return None
+            finally:
+                if _HAS_SETITIMER:
+                    _signal.setitimer(_signal.ITIMER_REAL, 0.0)
                 
         return results
         
