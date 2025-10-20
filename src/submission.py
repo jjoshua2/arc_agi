@@ -900,7 +900,8 @@ async def main() -> None:
         # Wait for all background LLM tasks to finish before ending the round
         if llm_tasks:
             await asyncio.gather(*list(llm_tasks), return_exceptions=True)
-            time_exhausted = True
+            if hard_timeout_reached:
+                time_exhausted = True
         elif grace_triggered and not ids_exhausted:
             to_cancel = list(active_tasks.keys())
             if to_cancel:
@@ -952,10 +953,22 @@ async def main() -> None:
             f"After {i+1} rounds, New challenges solved this round: {len(round_new_solved_ids)}"
         )
 
+        if low_solve_stop_enabled and len(round_new_solved_ids) <= 1:
+            low_solve_stop_triggered = True
+            if len(round_new_solved_ids) == 0:
+                print("Low-solve stop: no new challenges solved this round. Ending early.")
+                logfire.debug("Low-solve stop triggered: 0 new solves")
+            else:
+                print("Low-solve stop: only 1 new challenge solved this round. Ending early.")
+                logfire.debug("Low-solve stop triggered: 1 new solve")
+
 
         if time_exhausted:
             print("Timing limit reached; exiting remaining rounds early.")
             logfire.debug("Timing limit reached; exiting remaining rounds early.")
+            break
+
+        if low_solve_stop_triggered:
             break
 
 
