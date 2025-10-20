@@ -2,6 +2,7 @@
 Fast persistent worker pool for primitive evaluation.
 Replaces per-call process spawning with reusable workers.
 """
+import math
 import os
 import json
 import time
@@ -22,6 +23,9 @@ try:
 except Exception:
     _signal = None
     _HAS_SETITIMER = False
+
+def _timeout_handler(signum, frame):
+    raise TimeoutError("primitive execution timed out")
 
 _INLINE_TIMEOUT_DEFAULT = float(os.environ.get("ARC_FAST_SWEEP_PRIMITIVE_TIMEOUT", "2"))
 
@@ -114,17 +118,47 @@ def _evaluate_primitive_in_worker(job: EvalJob) -> PrimitiveResult:
         grids_out = job.train_outputs if job.train_outputs is not None else _BATCH_OUTPUTS
         if grids_in is None or grids_out is None:
             raise RuntimeError("Worker batch context not set and no grids provided in job")
-        timeout_sec = job.timeout_sec or _INLINE_TIMEOUT_DEFAULT
-        results = _run_transform_inline(code, grids_in, timeout_sec=timeout_sec)
+        timeout_sec = float(job.timeout_sec or _INLINE_TIMEOUT_DEFAULT)
+        failure_reason = "Transform failed"
+
+        timed_out = False
+        if _HAS_SETITIMER:
+            results, timed_out = _run_transform_inline(code, grids_in, timeout_sec=timeout_sec)
+            if timed_out:
+                failure_reason = f"Timeout after {timeout_sec:.2f}s"
+        else:
+            timeout_int = max(1, int(math.ceil(timeout_sec)))
+            run_result = run_python_transform_sync(
+                code=code,
+                grid_lists=grids_in,
+                timeout=timeout_int,
+                raise_exception=False,
+            )
+            if run_result and run_result.transform_results:
+                results = run_result.transform_results
+                timed_out = False
+            else:
+                results = None
+                timed_out = bool(run_result and run_result.timed_out)
+                if run_result:
+                    if run_result.timed_out:
+                        failure_reason = f"Timeout after {timeout_int}s"
+                    elif run_result.stderr:
+                        failure_reason = run_result.stderr.strip()[:200]
+                else:
+                    failure_reason = "Transform failed"
+
         if not results:
-            if timeout_sec:
+            if timed_out:
                 print(f"⚠️  Worker {_WORKER_ID}: primitive {job.primitive_id} timed out after {timeout_sec:.2f}s")
+            else:
+                print(f"⚠️  Worker {_WORKER_ID}: primitive {job.primitive_id} failed during evaluation ({failure_reason})")
             return PrimitiveResult(
                 primitive_id=job.primitive_id,
                 num_correct=0.0,
                 accuracy_score=0.0,
                 success=False,
-                error_msg="Transform failed",
+                error_msg=failure_reason,
             )
 
         # Compute scores
@@ -183,12 +217,15 @@ def _evaluate_primitives_chunk_in_worker(primitive_ids, train_inputs, train_outp
         results.append(res)
     return results
 
-def _run_transform_inline(code: str, grid_inputs: List[GRID], timeout_sec: float) -> Optional[List[GRID]]:
-    """Run transform function inline with optional POSIX timer fallback"""
+def _run_transform_inline(code: str, grid_inputs: List[GRID], timeout_sec: float) -> tuple[Optional[List[GRID]], bool]:
+    """Run transform function inline with optional POSIX timer fallback.
+
+    Returns: (results, timed_out)
+    """
     try:
         # Defensive programming: limit code length to prevent memory issues
         if len(code) > 50000:  # 50KB limit
-            return None
+            return None, False
             
         # Create safe execution environment with limited builtins
         safe_builtins = {
@@ -212,65 +249,71 @@ def _run_transform_inline(code: str, grid_inputs: List[GRID], timeout_sec: float
         }
         
         # Execute the code to define transform function with timeout if supported
+        prev_handler = None
         try:
             if _HAS_SETITIMER:
-                _signal.signal(_signal.SIGALRM, lambda signum, frame: (_ for _ in ()).throw(TimeoutError("exec timeout")))
+                prev_handler = _signal.getsignal(_signal.SIGALRM)
+                _signal.signal(_signal.SIGALRM, _timeout_handler)
                 _signal.setitimer(_signal.ITIMER_REAL, max(0.1, timeout_sec))
             exec(code, exec_globals)
+        except TimeoutError:
+            return None, True
         except (MemoryError, RecursionError, SystemError):
-            return None
+            return None, False
         except Exception:
-            return None
+            return None, False
         finally:
             if _HAS_SETITIMER:
                 _signal.setitimer(_signal.ITIMER_REAL, 0.0)
+                if prev_handler is not None:
+                    _signal.signal(_signal.SIGALRM, prev_handler)
             
         transform_func = exec_globals.get('transform')
         
         if not callable(transform_func):
-            return None
-        
+            return None, False
+
         # Apply to all inputs with individual timeout/error handling
         results = []
         for grid_input in grid_inputs:
             try:
                 # Basic input validation
                 if not _is_valid_grid(grid_input):
-                    return None
+                    return None, False
                 if _HAS_SETITIMER:
                     _signal.setitimer(_signal.ITIMER_REAL, max(0.1, timeout_sec))
                 result = transform_func(grid_input)
                 
                 # Validate result
                 if not _is_valid_grid(result):
-                    return None
+                    return None, False
                     
                 # Size sanity check (prevent memory bombs)
                 if len(result) > 100 or (result and len(result[0]) > 100):
-                    return None
+                    return None, False
                     
                 results.append(result)
             except TimeoutError:
                 if _HAS_SETITIMER:
                     _signal.setitimer(_signal.ITIMER_REAL, 0.0)
-                return None
+                return None, True
             except (MemoryError, RecursionError, SystemError):
                 # Worker-killing errors
-                return None
+                return None, False
             except Exception:
                 # Regular transform errors
-                return None
+                return None, False
             finally:
                 if _HAS_SETITIMER:
                     _signal.setitimer(_signal.ITIMER_REAL, 0.0)
                 
-        return results
+        return results, False
         
     except (MemoryError, RecursionError, SystemError):
         # Top-level worker protection
-        return None
+        return None, False
     except Exception:
-        return None
+        return None, False
 
 def _is_valid_grid(obj) -> bool:
     """Fast grid validation"""
