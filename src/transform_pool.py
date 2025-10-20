@@ -6,6 +6,7 @@ import math
 import os
 import json
 import time
+import traceback
 import pickle
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -562,17 +563,25 @@ class FastTransformPool:
                             chunk = future_to_chunk.get(future, [])
                             # Check if this is a worker crash that killed the pool
                             if "process pool" in str(e).lower() or "terminated abruptly" in str(e).lower():
+                                chunk_str = ",".join(chunk) if chunk else "<unknown>"
+                                print(f"Worker pool crashed while processing chunk [{chunk_str}]: {e}")
+                                try:
+                                    import traceback
+                                    trace = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
+                                    print(trace.rstrip())
+                                except Exception:
+                                    pass
                                 print(f"Worker pool crashed, attempting to recreate...")
                                 try:
                                     self.shutdown()
                                     self.start()
                                     print("Worker pool recreated successfully")
                                     # Don't return partial results, let caller retry
-                                    raise Exception("Worker pool was recreated, please retry")
+                                    raise RuntimeError("Worker pool was recreated, please retry") from e
                                 except Exception as restart_e:
                                     print(f"Failed to recreate worker pool: {restart_e}")
                                     raise e  # Original error
-                            
+
                             # Record crashes for all pids in chunk
                             for pid in chunk:
                                 print(f"🚨 Worker crashed during primitive {pid}: {e}")
