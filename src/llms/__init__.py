@@ -19,6 +19,10 @@ from google.generativeai import caching as gemini_caching
 from openai import AsyncAzureOpenAI, AsyncOpenAI
 from xai_sdk import AsyncClient
 from xai_sdk.chat import user, assistant, system, image
+try:
+    from xai_sdk.tools import code_execution
+except Exception:  # Older xai-sdk without tools module
+    code_execution = None
 import httpx
 
 from src import logfire
@@ -504,17 +508,42 @@ async def get_next_message_xai(
     retry_secs: int = 15,
     max_retries: int = 0,
     name: str = "xai",
+    challenge_id: str | None = None,
 ) -> tuple[str, ModelUsage] | None:
     retry_count = 0
-    extra_params = {}
-    extra_params["temperature"] = temperature
+    enable_code_execution = os.environ.get("XAI_ENABLE_CODE_EXECUTION", "0") == "1"
     while True:
         try:
             request_id = random_string()
             start = time.time()
             logfire.debug(f"[{request_id}] calling {name}")
             print(f"[{request_id}] calling {name} with model {model.value}")
-            chat = xai_client.chat.create(model=model.value, max_tokens=120000)
+            logfire.debug(
+                f"[{request_id}] XAI flags: code_execution={enable_code_execution}"
+            )
+            print(
+                f"[{request_id}] XAI flags: code_execution={enable_code_execution}"
+            )
+
+            tools = None
+            if enable_code_execution and code_execution is not None:
+                try:
+                    tools = [code_execution()]
+                except Exception as _:
+                    tools = None
+
+            if tools is not None:
+                chat = xai_client.chat.create(
+                    model=model.value,
+                    tools=tools,
+                    temperature=temperature,
+                )
+                logfire.debug(f"[{request_id}] created xai chat with code_execution tool enabled")
+            else:
+                chat = xai_client.chat.create(
+                    model=model.value,
+                    temperature=temperature,
+                )
 
             print(f"[{request_id}] chat successfully created")
             
@@ -538,8 +567,34 @@ async def get_next_message_xai(
                         raise ValueError(f"Invalid content type: {content['type']}")
 
             logfire.debug(f"[{request_id}] chat: {chat}")
-            
+
             message = await chat.sample()
+
+            # Optional per-call tool usage logging for offline analysis
+            try:
+                tool_stats_path = os.environ.get("SUBMISSION_TOOL_STATS_PATH")
+                if tool_stats_path:
+                    stats = {
+                        "type": "xai_call",
+                        "request_id": request_id,
+                        "challenge_id": challenge_id,
+                        "model": getattr(model, "value", str(model)),
+                        "reasoning_tokens": getattr(getattr(message, "usage", None), "reasoning_tokens", None),
+                        "server_side_tool_usage": getattr(message, "server_side_tool_usage", None),
+                    }
+                    try:
+                        tool_calls = getattr(message, "tool_calls", None)
+                        if tool_calls is not None:
+                            stats["tool_calls_total"] = len(tool_calls)
+                    except Exception:
+                        pass
+                    try:
+                        with open(tool_stats_path, "a", encoding="utf-8") as f:
+                            f.write(json.dumps(stats) + "\n")
+                    except Exception as _:
+                        pass
+            except Exception:
+                pass
 
             # Only show message content in verbose mode
             verbose_mode = os.environ.get("SUBMISSION_VERBOSE", "0") == "1"
@@ -634,7 +689,7 @@ async def get_next_message_gemini(
 
 
 async def get_next_messages(
-    *, messages: list[dict[str, T.Any]], model: Model, temperature: float, n_times: int
+    *, messages: list[dict[str, T.Any]], model: Model, temperature: float, n_times: int, challenge_id: str | None = None
 ) -> list[tuple[str, ModelUsage]] | None:
     if n_times <= 0:
         return []
@@ -891,7 +946,7 @@ async def get_next_messages(
             if r:
                 out.append(r)
         return out if out else None
-    elif model in [Model.grok_3, Model.grok_4, Model.grok_4_fast_reasoning]:
+    elif model in [Model.grok_3, Model.grok_4, Model.grok_4_fast_reasoning, Model.grok_4_1_fast_reasoning]:
         xai_client = AsyncClient(
             api_key=os.environ["XAI_API_KEY"],
             timeout=3600, # 3600 seconds = 60 minutes
@@ -906,6 +961,7 @@ async def get_next_messages(
                     messages=messages,
                     model=model,
                     temperature=temperature,
+                    challenge_id=challenge_id,
                 )
                 for _ in range(n_times)
             ]

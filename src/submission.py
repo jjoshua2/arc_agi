@@ -585,17 +585,44 @@ async def main() -> None:
 
     # Optional: override attempts per task (affects per-task concurrency)
     attempts_env = os.environ.get("SUBMISSION_ATTEMPTS")
+    attempts_override_value: int | None = None
     if attempts_env:
         try:
-            attempts_override = max(1, int(attempts_env))
+            attempts_override_value = max(1, int(attempts_env))
             from src.trees.experiments import grokfast_dreamcoder_tree as _tree_ref
             for node in _tree_ref:
-                node.attempts = attempts_override
-            print(f"Using SUBMISSION_ATTEMPTS={attempts_override}")
-            logfire.debug(f"Using SUBMISSION_ATTEMPTS={attempts_override}")
+                node.attempts = attempts_override_value
+            print(f"Using SUBMISSION_ATTEMPTS={attempts_override_value}")
+            logfire.debug(f"Using SUBMISSION_ATTEMPTS={attempts_override_value}")
         except Exception as _:
             print("WARNING: invalid SUBMISSION_ATTEMPTS; ignoring")
             logfire.debug("WARNING: invalid SUBMISSION_ATTEMPTS; ignoring")
+
+    round_stats_path = os.environ.get("SUBMISSION_ROUND_STATS_PATH")
+    round_stats_file = None
+    if round_stats_path:
+        try:
+            round_stats_file = open(round_stats_path, "a", encoding="utf-8")
+            model_name = None
+            try:
+                from src.trees.experiments import grokfast_dreamcoder_tree
+                if grokfast_dreamcoder_tree:
+                    model_name = getattr(grokfast_dreamcoder_tree[0].llm_config.model, "value", None)
+            except Exception:
+                model_name = None
+            header = {
+                "type": "run_config",
+                "model": model_name,
+                "code_execution": os.environ.get("XAI_ENABLE_CODE_EXECUTION", "0") == "1",
+                "num_total": len(eval_ids_to_test),
+                "submission_rounds": total_rounds,
+                "submission_attempts": attempts_override_value,
+            }
+            round_stats_file.write(json.dumps(header) + "\n")
+            round_stats_file.flush()
+        except Exception as e:
+            print(f"WARNING: failed to open SUBMISSION_ROUND_STATS_PATH={round_stats_path}: {e}")
+            round_stats_file = None
 
     # Streaming approach: maintain constant number of active challenges
     # Defaults favor single active challenge when fast sweep is on
@@ -929,6 +956,22 @@ async def main() -> None:
             f"After {i+1} rounds, New challenges solved this round: {len(round_new_solved_ids)}"
         )
 
+        if round_stats_file:
+            try:
+                record = {
+                    "type": "round",
+                    "round": i + 1,
+                    "num_processed": processed,
+                    "num_new_solved": len(round_new_solved_ids),
+                    "cumulative_solved": len(solved_challenges),
+                    "train_perfect_but_test_wrong": len(train_perfect_but_test_wrong),
+                    "total_cost_cents": total_cost_in_cents[0],
+                }
+                round_stats_file.write(json.dumps(record) + "\n")
+                round_stats_file.flush()
+            except Exception as e:
+                print(f"WARNING: failed to write XAI round stats: {e}")
+
 
         if time_exhausted:
             print("Timing limit reached; exiting remaining rounds early.")
@@ -1011,6 +1054,12 @@ async def main() -> None:
         f"{total_runtime_seconds / 3600:.2f} hours ({total_runtime_seconds / 60:.1f} minutes)"
     )
     logfire.debug(f"FINAL: Total runtime seconds: {total_runtime_seconds}")
+
+    try:
+        if round_stats_file:
+            round_stats_file.close()
+    except Exception:
+        pass
 
     try:
         Path("solved_ids.json").write_text(
